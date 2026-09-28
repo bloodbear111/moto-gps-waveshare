@@ -267,17 +267,65 @@ lint: No issues found.
 `protocol_version`/`route_mode` 被省略；KDoc 里写 `*.schema.json` 会开启嵌套
 注释导致文件无法编译。
 
+### ✅ 已实现：定位源与核心↔网关桥接（第二片）
+
+| 文件 | 作用 |
+| --- | --- |
+| `navigation/NavigationSource.kt` | 平台无关的定位接口 + `LocationQuality`（可用性/陈旧性判定与拒绝原因） |
+| `navigation/AndroidLocationSource.kt` | `FusedLocationProviderClient` 优先，**无 Google Play 服务时回退平台 `LocationManager`** |
+| `navigation/NavCommandExecutor.kt` | 把 `NavCommand` 变成网关请求，再把结果转回核心事件 |
+
+本片落实的规则：
+
+* **不假定有 Google Play 服务**：`GoogleApiAvailability` 返回 SUCCESS 才用融合定位，
+  否则直接用平台 GNSS 提供者；两者都是正式路径，不是"降级凑合"。
+* **只认精确定位**：只有 `ACCESS_FINE_LOCATION` 算可用于导航；只给了模糊定位时报
+  `PermissionDenied`，不把模糊位置当位置用。
+* **保留完整定位元数据**：精度、速度、方向、时间戳全部传给核心；时间戳用
+  `elapsedRealtimeNanos`（单调时钟），避免系统调时被误判为"陈旧"或"来自未来"。
+* **陈旧与低精度分开表达**：`Stale`（等一会就好）与 `PoorAccuracy` /
+  `UnknownAccuracy`（需要换位置或换环境）是不同原因，界面因此能说清发生了什么。
+  阈值与 `NavCoreConfig` 对齐（50 m / 5000 ms），并用测试锁住。
+* **路况刷新复用原路线端点**（对齐 iOS `SharedNavigationRuntime`）：核心发出的
+  traffic 命令**不带起终点**，若改用骑手当前位置重新规划会得到不同几何；而路况
+  偏移量是从完整路线起点算的，套到新几何上会把拥堵画错路。因此刷新时使用当前
+  路线的原始起终点，并校验 `route_id`、折线逐点一致与总长度容差。
+* **失败按可重试性分类**：传输失败可重试；`NotConfigured`、协议错误、过期响应
+  **不重试**，避免无意义地消耗网关配额。
+
+### 🧪 自动测试通过
+
+```text
+> ./gradlew :app:testDebugUnitTest :app:lintDebug
+BUILD SUCCESSFUL
+TOTAL tests=85 failures=0
+  gateway.GatewayConfigurationTest        tests=9  failures=0
+  gateway.GatewayRouteMapperTest          tests=9  failures=0
+  gateway.MotoGatewayClientTest           tests=17 failures=0
+  navigation.LocationQualityTest          tests=8  failures=0
+  navigation.NavCommandExecutorTest       tests=14 failures=0
+  protocol.BleHandshakeGateTest           tests=14 failures=0
+  protocol.BleSessionHeartbeatClockTest   tests=3  failures=0
+  protocol.BleWritePumpPolicyTest         tests=5  failures=0
+  protocol.MotoProtocolEnumsTest          tests=6  failures=0
+lint: No issues found.
+```
+
+新用例覆盖：路线请求使用命令自带的 WGS84 端点、重算带上 `previous_route_id`、
+首次规划不带；**路况刷新必须使用原路线端点**（测试故意让命令携带 0,0 并断言请求体
+仍是原始端点）、路线 id 不符拒绝、几何变化拒绝、未配置/不可达/服务错误的可重试性
+分类、未知命令不阻塞核心；以及定位可用性、陈旧边界、NaN 精度、非法坐标的**区分**。
+
 ### ⬜ 本阶段尚未完成
 
-1. **定位源**：`FusedLocationProviderClient` 优先，无 Google Play 服务的机型回退
-   `LocationManager`；保留精度、时间戳、速度与方向；陈旧/低精度定位交给 `NavCore`
-   判定为不可用。
-2. **导航会话**：把定位与路线命令接进 `NavCore`，下发 `NavigationSnapshot`、
-   `RouteGeometry`（≤24 点窗口）与 `TrafficDeviation`；处理重算与路况刷新。
-3. **界面**：目的地搜索、位置偏置、候选路线与时间/距离预览、开始/结束导航。
-4. **演示模式**：明确标注为模拟；真实定位或网络失败时**不自动切换**到假数据。
-5. **网关联调**：需要用户提供可公网访问的 HTTPS 网关地址；目前客户端只用
-   schema 符合的样例与假传输验证，**没有对真实网关发过请求**。
+1. **导航会话组装**：把 `NavigationSource` + `NavCommandExecutor` + `NavCore` +
+   BLE 串成一个会话对象，处理重算、路况节流与状态补发。
+2. **界面**：目的地搜索、位置偏置、候选路线与时间/距离预览、开始/结束导航。
+3. **演示模式**：明确标注为模拟；真实定位或网络失败时**不自动切换**到假数据。
+4. **网关联调**：需要用户提供可公网访问的 HTTPS 网关地址；目前所有验证都用
+   schema 符合的样例与假传输，**没有对真实网关发过请求**。
+5. **真机定位验证**：`AndroidLocationSource` 的两条分支都**没有在真机上跑过**，
+   包括 Xiaomi 14 Pro 上是否有可用 Play 服务、息屏后定位是否继续。
 
 阶段五（前台服务与锁屏导航）、阶段六（地图下载与可选音乐控制）、
 阶段七（完整测试与交付）、阶段八（Fork 与 Release）见
