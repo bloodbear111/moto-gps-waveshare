@@ -212,22 +212,72 @@ C++ 编解码器**。它同时证明了：
 
 ---
 
-## 下一阶段任务（阶段四：接入真实导航）
+## 阶段四：接入真实导航（进行中）
 
-尚未开始。按用户需求，优先顺序为：
+### ✅ 已实现：网关客户端（第一片）
 
-1. **网关 HTTP 客户端**：`/healthz`、`/v1/places`、`/v1/route-options`、`/v1/routes`，
-   严格按 `shared/protocol` 现有 schema，不虚构接口；空配置时明确提示用户配置。
-2. **定位源**：优先 `FusedLocationProviderClient`，在**没有 Google Play 服务**的国内
-   机型上回退到平台 `LocationManager`；保留精度、时间戳、速度与方向；
-   陈旧或精度差的定位按 `NavCore` 规则显式处理为不可用。
-3. **坐标系边界**：定位来源标注坐标系统；网关路线输入为 WGS84；路线几何为 GCJ-02；
-   转换只经共享 `moto::coordinates`，不重复转换、不叠画两种坐标。
-4. **导航会话**：把定位与路线交给共享 `NavCore`，发送 `NavigationSnapshot`、
-   `RouteGeometry`（≤24 点窗口）与 `TrafficDeviation`；处理过期响应与错误网关。
-5. **演示模式**：明确标注为模拟，真实定位或网络失败时**不自动切换**到假数据。
-6. 不虚构红绿灯读秒、道路限速或摩托禁限行；缺数据时按协议表达未知
-   （`speed_limit_kph = 0`、`traffic = Unknown`）。
+只使用后端**现有**接口，没有虚构端点。字段、查询参数、信封与错误结构来自
+`backend/src/gateway.js`、`backend/src/validation.js`、
+`backend/src/amap-places.js`、`backend/src/amap-transformer.js`
+与 `shared/protocol` 下的 schema。
+
+| 文件 | 作用 |
+| --- | --- |
+| `gateway/MotoGatewayClient.kt` | `GET /healthz`、`GET /v1/places`、`POST /v1/route-options`、`POST /v1/routes` |
+| `gateway/GatewayModels.kt` | 逐字段对照 schema 的 DTO；请求只含后端允许的键 |
+| `gateway/GatewayTransport.kt` | 可替换的 HTTP 边界 + `HttpURLConnection` 实现（拒绝非 HTTPS） |
+| `gateway/GatewayFailures.kt` | 类型化失败：未配置 / 不可达 / 服务错误 / 协议错误 / 过期响应 |
+| `gateway/GatewayRouteMapper.kt` | `RouteBundle` → 共享 `NavCore` 的路线类型 |
+
+本片落实的规则：
+
+* **request_id 由共享 `NavCore` 分配**，客户端从不自己生成；响应的
+  `request_id` 与发出值不一致时按 `Stale` 丢弃，**不让旧响应覆盖新路线**。
+* **坐标系边界**：请求起终点标记 `WGS84`；路线几何要求 `GCJ-02`，
+  否则直接拒绝而不是就地转换；`places[].location` 按网关输出视为 WGS84。
+* **不虚构数据**：`speed_limit_kph` 恒为 0（schema 与高德 Route v2 都没有可信限速），
+  未知的 maneuver/traffic 字符串降级为 `Unknown`；`/healthz` 的
+  `road_speed_limits` 与 `traffic_light_countdown` 当前都是 false，客户端不据此宣称能力。
+* **不截断**：超出 schema 上限（折线 8192 点、maneuver 512、traffic 2048、
+  候选路线 3 条）的响应按协议错误拒绝，避免悄悄改变骑手看到的路线。
+* 空配置返回 `NotConfigured`，**不指向任何默认主机**。
+
+### 🧪 自动测试通过
+
+```text
+> ./gradlew :app:testDebugUnitTest :app:lintDebug
+BUILD SUCCESSFUL
+TOTAL tests=63 failures=0
+  gateway.GatewayConfigurationTest        tests=9  failures=0
+  gateway.GatewayRouteMapperTest          tests=9  failures=0
+  gateway.MotoGatewayClientTest           tests=17 failures=0
+  protocol.BleHandshakeGateTest           tests=14 failures=0
+  protocol.BleSessionHeartbeatClockTest   tests=3  failures=0
+  protocol.BleWritePumpPolicyTest         tests=5  failures=0
+  protocol.MotoProtocolEnumsTest          tests=6  failures=0
+lint: No issues found.
+```
+
+新增用例覆盖：请求体**精确键集**（后端会拒绝未知字段）、可选字段省略、
+路线与候选路线解析、过期 `request_id` 丢弃、非 GCJ-02 几何拒绝、超限折线拒绝、
+速率限制与服务错误（含 `Retry-After`）、禁用网关错误、畸形响应、
+传输失败、地点搜索的附近偏置与坐标、**能力位不得虚报限速与读秒**。
+
+写测试时抓到的两个真实缺陷（已修）：`encodeDefaults=false` 会让必需的
+`protocol_version`/`route_mode` 被省略；KDoc 里写 `*.schema.json` 会开启嵌套
+注释导致文件无法编译。
+
+### ⬜ 本阶段尚未完成
+
+1. **定位源**：`FusedLocationProviderClient` 优先，无 Google Play 服务的机型回退
+   `LocationManager`；保留精度、时间戳、速度与方向；陈旧/低精度定位交给 `NavCore`
+   判定为不可用。
+2. **导航会话**：把定位与路线命令接进 `NavCore`，下发 `NavigationSnapshot`、
+   `RouteGeometry`（≤24 点窗口）与 `TrafficDeviation`；处理重算与路况刷新。
+3. **界面**：目的地搜索、位置偏置、候选路线与时间/距离预览、开始/结束导航。
+4. **演示模式**：明确标注为模拟；真实定位或网络失败时**不自动切换**到假数据。
+5. **网关联调**：需要用户提供可公网访问的 HTTPS 网关地址；目前客户端只用
+   schema 符合的样例与假传输验证，**没有对真实网关发过请求**。
 
 阶段五（前台服务与锁屏导航）、阶段六（地图下载与可选音乐控制）、
 阶段七（完整测试与交付）、阶段八（Fork 与 Release）见

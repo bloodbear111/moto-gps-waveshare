@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 // Repository root, used to reuse the upstream `shared/` C++ core instead of
@@ -106,6 +107,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.service)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.kotlinx.serialization.json)
     implementation(libs.play.services.location)
     // Not used directly, but ComponentActivity.registerForActivityResult is only
     // safe when a Fragment >= 1.3.0 is on the classpath; lint enforces that.
