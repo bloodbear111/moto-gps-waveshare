@@ -105,11 +105,51 @@ BUILD SUCCESSFUL
 
 ### 📱 真机通过
 
-⬜ **尚无。** 本次开发环境没有连接任何安卓手机，也没有 ESP32-S3-Touch-AMOLED-1.75C。
+**已记录机型**
 
-以下项目因此**完全没有验证**，不能当作已完成：
+| 项目 | 值 |
+| --- | --- |
+| 设备型号 | Xiaomi 14 Pro（认证型号 23116PN5BC） |
+| 系统 | HyperOS 3.0.308.0.WNBCNXM.C11 |
+| Android 版本 | 16（安全更新 2026-08-01） |
+| 内核 | 6.1.138-android14-11-g0c3d559bcd85-ab14529422 |
+| 基带 | MPSS.DE.5.0-CN-1cb5074db8 |
+| 芯片 / 内存 | 第三代骁龙 8 / 16 GB |
 
-* 在任何机型上安装并启动；
+**已完成：协议自检 10/10 通过（真机，2026-09-29）**
+
+在 Xiaomi 14 Pro 上安装 `app-debug.apk`，进入「自检」页运行，10 项全部通过：
+
+```text
+PASS  crc16:123456789              CRC 参数 poly 0x1021 / init 0xFFFF
+PASS  gatt:uuids                   service / RX / TX / CCCD 与 v1 一致
+PASS  frame:connection             黄金连接帧的帧头与长度
+PASS  payload:connection-fields    角色 / 状态 / 能力 / 会话 / 帧大小 / 心跳
+PASS  encode:connection-frame      用解析值重编码 == 黄金 payload 与 185 字节单帧
+PASS  roundtrip:navigation.payload NavigationSnapshot 解码→重编码逐字节一致
+PASS  roundtrip:geometry.payload   RouteGeometry（含 ZigZag varint）往返一致
+PASS  roundtrip:command.payload    DeviceCommand 往返一致
+PASS  fragments:command20          20 字节 GATT value 下的两分片与黄金分片一致
+PASS  reassembly:missing-start     缺 START 的续帧被拒（MissingStart）
+```
+
+**这一条为什么重要：** 这 10 项不是用 Kotlin 重写的校验，而是**在真机上加载
+`libmoto_mobile.so`，把仓库的 `ble-navigation-v1.golden.txt` 喂给上游同一份
+C++ 编解码器**。它同时证明了：
+
+* JNI 库在 Android 16 / arm64 上能加载，`MotoProtocolCodec` 能分配与释放；
+* 共享 C++ 核心（`shared/ble_protocol`）被安卓工具链正确编译且行为与夹具一致；
+* 端上字符串（`东长安街` 等 UTF-8）经 JNI 往返没有被破坏；
+* 分片与重组规则在端上实现与固件相同。
+
+因此下列项目从「未验证」升级为**已通过**：
+
+* 在真实安卓机型上安装并启动；
+* JNI 黄金字节自检（原 `androidTest` 中的同源断言）；
+* 共享 C++ 在 arm64 真机上的运行行为。
+
+**仍未验证**（需要圆屏或更长的观察）：
+
 * 扫描到真实圆屏、配对/加密、服务发现、TX 订阅；
 * 完成两步握手并进入协议就绪；
 * 断连 → 重连 → 重新握手 → 状态补发；
@@ -117,25 +157,31 @@ BUILD SUCCESSFUL
 * 实际功耗与长时间骑行稳定性；
 * 与固件实际协商出的 MTU 与帧大小。
 
+`androidTest` 中仍需设备执行的剩余断言（枚举与 C++ 编译值一致性、
+`NavCore` 生命周期与导航行为）**尚未运行**。
+
 已计划的真机步骤（需要用户配合）：
 
-1. `adb install -r app-debug.apk`，确认启动不崩溃。
-2. 圆屏开机，进入 App「连接」页扫描，确认能发现设备。
-3. 连接后确认状态依次经过 发现服务 → 握手 → 协议就绪，并记录协商帧大小。
-4. 在「自检」页运行协议自检，记录每一项结果。
+1. ~~`adb install -r app-debug.apk`，确认启动不崩溃。~~ **已完成**
+2. ~~运行协议自检，记录每一项结果。~~ **已完成（10/10）**
+3. 圆屏开机，进入 App「连接」页扫描，确认能发现设备。
+4. 连接后确认状态依次经过 发现服务 → 握手 → 协议就绪，并记录协商帧大小。
 5. 关闭圆屏再开机，确认自动恢复流程与状态补发。
-6. 记录机型、系统版本、固件提交与复现步骤。**公开日志前删除地址、轨迹和设备标识。**
+6. 记录固件提交与复现步骤。**公开日志前删除地址、轨迹和设备标识。**
 
-### ⬜ 尚未验证（受环境限制）
+### 仍需设备执行的检查
 
-| 项目 | 原因 | 如何补齐 |
+开发机（Windows，无安卓设备）无法运行 `androidTest`，因为这些用例要加载
+`libmoto_mobile.so`。手机已到位，因此可以补跑：
+
+| 项目 | 状态 | 如何补齐 |
 | --- | --- | --- |
-| JNI 黄金字节自检 | 单元测试跑在 JVM 上，无法加载 `libmoto_mobile.so` | 已写成 `androidTest`，需要真机或模拟器执行 `connectedDebugAndroidTest` |
-| `NavCore` 的 JNI 生命周期与行为 | 同上 | 同上（用例已就绪，见 `MotoNavCoreInstrumentedTest`） |
-| Kotlin 枚举与 C++ 编译值一致性 | 同上 | 同上（`MotoProtocolGoldenInstrumentedTest`） |
-| Gralloc/模拟器 UI 检查 | 未安装模拟器系统镜像 | 安装 system image 后可补 |
+| JNI 黄金字节自检 | ✅ 已由 App「自检」页在真机覆盖（10/10） | — |
+| Kotlin 枚举与 C++ 编译值一致性 | ⬜ 未运行 | `./gradlew :app:connectedDebugAndroidTest` |
+| `NavCore` 的 JNI 生命周期与导航行为 | ⬜ 未运行 | 同上（`MotoNavCoreInstrumentedTest`） |
+| 模拟器 UI 检查 | ⬜ 未运行 | 安装 system image 后可补；与真机检查分开记录 |
 
-这些用例**已经写好并且是真实断言**，只是本次没有设备可跑。它们不是“通过”。
+尚未运行的两项**用例已经写好并且是真实断言**，在跑之前不算通过。
 
 ---
 
@@ -209,10 +255,16 @@ subscription, the two-step handshake, paced/serialised GATT writes, application
 ACLs, session-scoped heartbeats, command de-duplication and disconnect teardown.
 
 *Verified in this environment*: 37 JVM unit tests pass, `lintDebug` reports no
-issues, and `assembleDebug` produces a 21.97 MiB debug APK with
+issues, and a cache-free clean checkout build produces a 21.97 MiB debug APK with
 `lib/<abi>/libmoto_mobile.so` for arm64-v8a, armeabi-v7a and x86_64.
 
-*Not verified*: anything requiring a phone or the round display. The golden-byte
-self-check, JNI lifetime tests and enum-parity tests exist as instrumented tests
-and have **not** been executed here; no device acceptance is claimed. The debug
-APK is test-only and is not a release build.
+*Verified on a physical device*: a Xiaomi 14 Pro (HyperOS 3.0.308.0, Android 16)
+installed the debug APK and passed all 10 protocol self-check vectors. That runs
+the upstream C++ codec through JNI against
+`shared/protocol/fixtures/ble-navigation-v1.golden.txt`, so the wire format,
+CRC, fragmentation and reassembly behaviour are confirmed on real arm64 Android.
+
+*Still not verified*: anything requiring the round display — scanning, pairing,
+service discovery, the two-step handshake, reconnect, screen-off behaviour and
+power use. The instrumented enum-parity and `NavCore` tests have not been
+executed yet. The debug APK is test-only and is not a release build.

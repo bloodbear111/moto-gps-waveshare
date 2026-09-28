@@ -42,7 +42,11 @@ The list of changes that would be useful to send upstream is in
 
 `minSdk 26` keeps the BLE and Compose surface on APIs we can actually verify, and
 avoids unverifiable branches for API 21–25. It does **not** claim all-device
-support: no physical-device acceptance has been recorded yet. See
+support, and there is no per-version device matrix.
+
+Recorded device: Xiaomi 14 Pro (HyperOS 3.0.308.0.WNBCNXM.C11, Android 16) —
+install, launch and **all 10 protocol self-check vectors pass**. Scanning,
+pairing, handshake and reconnect still need the round display. Full record:
 [DEVELOPMENT_STATUS.md](DEVELOPMENT_STATUS.md).
 
 ## Build

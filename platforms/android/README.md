@@ -71,9 +71,12 @@ UI、导航会话、定位、网关、BLE 与地图存储是分开的层：`Main
 `BluetoothGattCallback` 的现代重载、Compose 与前台服务类型都在此之上有稳定支持，
 同时避免为 API 21–25 维护一套没有真机验证的分支。
 
-这**不代表全机型兼容**。当前只在文档层面确认了 API 分支（`BUILD.VERSION` 判断
-写队列、CCCD、MTU 与通知回调的老/新重载），尚未在任何真机上完成验收；
-实测机型、系统版本与结论见 [DEVELOPMENT_STATUS.md](DEVELOPMENT_STATUS.md)。
+这**不代表全机型兼容**。API 分支（`Build.VERSION` 判断写队列、CCCD、MTU 与通知
+回调的老/新重载）目前只有文档与代码层面的确认，**没有逐版本真机矩阵**。
+
+已记录的真机：Xiaomi 14 Pro（HyperOS 3.0.308.0.WNBCNXM.C11，Android 16）——
+安装、启动与**协议自检 10/10 通过**。扫描、配对、握手、断连恢复等依赖圆屏的
+项目仍未验证。完整记录见 [DEVELOPMENT_STATUS.md](DEVELOPMENT_STATUS.md)。
 
 ## 构建与安装
 
