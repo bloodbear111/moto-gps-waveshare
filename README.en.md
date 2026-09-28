@@ -12,7 +12,8 @@
 
 [Features and user manual](docs/USER_MANUAL.en.md) · [Live navigation gateway configuration](docs/GATEWAY_SETUP.en.md)
 
-**Using an Android phone?** [Build an Android version with AI](docs/ANDROID_AI_GUIDE.en.md): a copyable development prompt, BLE and navigation adaptation, testing and GitHub release steps. There is no ready-to-install Android app yet.
+**Using an Android phone?** [Build an Android version with AI](docs/ANDROID_AI_GUIDE.en.md): a copyable development prompt, BLE and navigation adaptation, testing and GitHub release steps.
+Starting from that guide, contributor [bloodbear111](https://github.com/bloodbear111) has begun a **community native Android port** in [platforms/android](platforms/android/README.en.md). It reuses this repository's shared C++ core and BLE v1 protocol through NDK + JNI, does not change the round-display protocol, and does not require Android-specific firmware. **It is a community fork, not an upstream-supported release**; the upstream author has not reviewed or tested it. Current progress and device-verification status: [development status](platforms/android/DEVELOPMENT_STATUS.md).
 
 **Help build Glimpse.** If you build an Android app from this project, we'd love you to share its source
 on GitHub so others can learn from it, use it and help maintain it. Start a conversation in

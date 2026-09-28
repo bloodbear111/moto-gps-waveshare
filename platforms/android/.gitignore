@@ -1,0 +1,32 @@
+# Local SDK/toolchain path. Never commit: it is machine specific.
+local.properties
+
+# Gradle and Kotlin caches
+.gradle/
+.kotlin/
+build/
+
+# Build outputs
+*.apk
+*.aab
+*.aar
+*.ap_
+*.dex
+
+# Signing material and secrets must never enter the repository. Release signing
+# lives in a protected local directory or a CI secret, and PR workflows do not
+# receive it.
+*.jks
+*.keystore
+keystore.properties
+signing.properties
+
+# Native build trees produced by CMake/NDK
+.cxx/
+**/.cxx/
+obj/
+
+# IDE state
+.idea/
+*.iml
+.DS_Store

@@ -1,0 +1,218 @@
+# 开发进度与验证记录
+
+> 语言：中文。English summary is at the bottom.
+
+本文区分四类状态，**不把没做过的事情写成已完成**：
+
+| 标记 | 含义 |
+| --- | --- |
+| ✅ 已实现 | 代码已写好并纳入工程 |
+| 🧪 自动测试通过 | 在本次开发环境中实际执行并通过，附命令与结果 |
+| 📱 真机通过 | 需要真机 / 真实圆屏才算通过 |
+| ⬜ 尚未验证 | 没有相应条件或还没做 |
+
+---
+
+## 阶段一：工程与蓝牙连接（本次交付）
+
+### ✅ 已实现
+
+**工程与工具链**
+
+* `platforms/android/` Kotlin + Jetpack Compose 工程，与 `platforms/ios`、`platforms/esp32`、`platforms/web` 平级。
+* Gradle Wrapper 已提交（`gradlew`、`gradlew.bat`、`gradle/wrapper/*`）。
+* 版本目录 `gradle/libs.versions.toml` 锁定全部依赖版本。
+* CI：`.github/workflows/android.yml`，从干净检出安装固定工具链、拉取子模块、跑单元测试 / lint / 打包。
+
+**复用上游 C++ 核心（通过 NDK + CMake + JNI）**
+
+`app/src/main/cpp/CMakeLists.txt` 直接 `add_subdirectory` 上游的
+`shared/coordinates`、`shared/nav_core`、`shared/nav_app`、`shared/ble_protocol`，
+把它们和新增的 JNI 适配层一起编进 `libmoto_mobile.so`。应用里没有第二套协议实现。
+
+新增的 C++ 只有两个文件（属于安卓适配层）：
+
+| 文件 | 作用 |
+| --- | --- |
+| `moto_jni.cpp` | Kotlin ↔ 共享 C++ 的编组：编解码器、重组器、NavApp |
+| `moto_golden_selftest.cpp` | 用仓库黄金字节驱动共享编解码器做自检 |
+
+`shared/protocol/fixtures/ble-navigation-v1.golden.txt` 在 CMake 配置阶段被内嵌成
+生成头文件，端上自检因此**直接读取仓库夹具**，不存在手工复制的副本。
+
+**Kotlin 侧**
+
+| 模块 | 内容 |
+| --- | --- |
+| `protocol/` | `MotoProtocolCodec`（JNI 门面）、`BleHandshakeGate`、`BleSessionHeartbeatClock`、`BleWritePumpPolicy`、协议枚举镜像 |
+| `ble/` | 按服务 UUID 扫描、权限拆分、GATT 串行队列、`MotoBleCentral` 会话 |
+| `navigation/` | `MotoNavCore`（共享 `NavApp` 的 JNI 门面）与快照缓冲 |
+| `gateway/` | 网关地址规范化（HTTP 客户端属于阶段四） |
+| `ui/` | 三个 Compose 页面：连接、自检、设置 |
+
+**连接与协议行为**
+
+* 蓝牙可用性与 LE 支持检查、按服务 UUID 过滤扫描、显式选择设备。
+* 连接后：发现服务 → 请求 MTU → 订阅 TX Notify（写 CCCD）→ 握手。
+* 两步握手门：只有设备**第二次** `Ready` 且参数一致才进入协议就绪。
+* 帧大小按 `min(ATT_MTU - 3, 设备上报值, 512)` 计算，不假设 512。
+* GATT 操作全部走串行队列，一次只允许一个未完成操作。
+* 写队列 FIFO 且有节流，同一逻辑消息的分片不会交织。
+* 心跳使用**本会话已用时间**（锚定在会话开始），不是手机开机时长。
+* 断连清空写队列、重置入站重组状态、重新握手并复用同一编码器的发送序号。
+* 设备换 `session_id` 时清空去重表与分片并重新握手。
+* `MapScene` 使用应用级 ACK：750 ms 未收到则用**相同序号与相同分片**重发，最多 2 次，之后置降级。
+* `DeviceCommand` 按 `(session_id, command_id)` 去重，成功/重复分别回 ACK。
+* 链路存活看门狗：连续超过 `max(5000ms, 心跳×3)` 没有 CRC 正确帧即置降级并请求补发快照。
+
+### 🧪 自动测试通过
+
+实际执行环境：Windows 11，JDK 17.0.20.1，Gradle 8.14.5，AGP 8.13.2，
+Kotlin 2.2.20，compileSdk/targetSdk 36，minSdk 26，NDK 27.3.13750724，CMake 3.22.1。
+
+```text
+> ./gradlew clean :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --no-build-cache
+BUILD SUCCESSFUL
+64 actionable tasks: 64 executed        # 无缓存，逐任务执行
+  tests=37 failures=0 skipped=0
+    gateway.GatewayConfigurationTest                 tests=9  failures=0
+    protocol.BleHandshakeGateTest                    tests=14 failures=0
+    protocol.BleSessionHeartbeatClockTest            tests=3  failures=0
+    protocol.BleWritePumpPolicyTest                  tests=5  failures=0
+    protocol.MotoProtocolEnumsTest                   tests=6  failures=0
+  lint: No issues found.
+```
+
+该命令在**刚从 GitHub 克隆的检出**上执行：`clean` 会同时清空 CMake 原生构建目录，
+`--no-build-cache` 保证没有任务命中缓存。CMake 为 `arm64-v8a`、`armeabi-v7a`、
+`x86_64` 三个 ABI 重新编译了共享 C++ 核心（`coordinates`、`nav_core`、`nav_app`、
+`ble_protocol`），APK 内确认存在 `lib/<abi>/libmoto_mobile.so`。
+
+产物：
+
+| 项目 | 值 |
+| --- | --- |
+| APK | `app/build/outputs/apk/debug/app-debug.apk` |
+| 大小 | 21.97 MiB |
+| SHA-256 | `64275fa262ea095a815d71df0928457bbc9688624014b1df5e2b54a3c087a2ab` |
+| 签名 | **debug 签名，仅供测试**，不可作为发布包 |
+
+说明：同一个源码在**不同绝对路径**下构建时，debug APK 的 SHA-256 会不同
+（NDK 会把构建路径写进调试信息）。上面是同一次干净构建的对应值。
+
+注意：以上是**构建与单元测试**证据。它证明代码能编译、策略逻辑正确、
+共享 C++ 能被安卓工具链编译，**不证明**任何真机行为。
+
+### 📱 真机通过
+
+⬜ **尚无。** 本次开发环境没有连接任何安卓手机，也没有 ESP32-S3-Touch-AMOLED-1.75C。
+
+以下项目因此**完全没有验证**，不能当作已完成：
+
+* 在任何机型上安装并启动；
+* 扫描到真实圆屏、配对/加密、服务发现、TX 订阅；
+* 完成两步握手并进入协议就绪；
+* 断连 → 重连 → 重新握手 → 状态补发；
+* 息屏 / 锁屏 / 任务切换 / 进程回收下的行为；
+* 实际功耗与长时间骑行稳定性；
+* 与固件实际协商出的 MTU 与帧大小。
+
+已计划的真机步骤（需要用户配合）：
+
+1. `adb install -r app-debug.apk`，确认启动不崩溃。
+2. 圆屏开机，进入 App「连接」页扫描，确认能发现设备。
+3. 连接后确认状态依次经过 发现服务 → 握手 → 协议就绪，并记录协商帧大小。
+4. 在「自检」页运行协议自检，记录每一项结果。
+5. 关闭圆屏再开机，确认自动恢复流程与状态补发。
+6. 记录机型、系统版本、固件提交与复现步骤。**公开日志前删除地址、轨迹和设备标识。**
+
+### ⬜ 尚未验证（受环境限制）
+
+| 项目 | 原因 | 如何补齐 |
+| --- | --- | --- |
+| JNI 黄金字节自检 | 单元测试跑在 JVM 上，无法加载 `libmoto_mobile.so` | 已写成 `androidTest`，需要真机或模拟器执行 `connectedDebugAndroidTest` |
+| `NavCore` 的 JNI 生命周期与行为 | 同上 | 同上（用例已就绪，见 `MotoNavCoreInstrumentedTest`） |
+| Kotlin 枚举与 C++ 编译值一致性 | 同上 | 同上（`MotoProtocolGoldenInstrumentedTest`） |
+| Gralloc/模拟器 UI 检查 | 未安装模拟器系统镜像 | 安装 system image 后可补 |
+
+这些用例**已经写好并且是真实断言**，只是本次没有设备可跑。它们不是“通过”。
+
+---
+
+## 与文档不一致或需要说明的地方
+
+阅读源码时发现以下与文档存在差异或值得上游补充的点，**没有按猜测实现**：
+
+1. **能力交集的具体规则未写进规范正文。** §3 只说“取能力交集”，
+   而固件与 iOS 的实际做法是：设备能力必须覆盖手机的**必需集合**
+   （navigation、route geometry、traffic、touch commands、command ACK），
+   `MapScene` 是可选位。安卓端按实现行为对齐，已在测试中固定。
+   （本次记录的黄金连接向量能力位是 `0x7F`，恰好**不含** MapScene 位。）
+
+2. **§4.3 的重发语义容易误读。** “用同一序号和完全相同的分片重发”意味着必须
+   **缓存原始分片**并原样重发，而不是重新编码一次。安卓端按缓存原分片实现。
+
+3. **`ble_navigation_v1.md` §2 的 `max_frame_size` 下限是 13，**
+   与实现中的 `kFrameOverhead + 1`（12 + 1）一致；测试里用
+   `kFrameHeaderSize + kFrameCrcSize + 1` 交叉校验，避免有人只改一处。
+
+4. **iOS 的 `GatewayConfiguration` 把非 HTTPS 归为 `invalidAddress`，**
+   安卓端拆成独立的 `Insecure` 错误，以便界面给出“必须使用 HTTPS”的准确提示。
+   接受/拒绝的输入集合与 iOS 保持一致（含拒绝 `.invalid` 占位域名、账号密码、
+   查询串、片段与 `/healthz`、`/v1/...` 端点地址）。
+
+5. **`ANDROID_AI_GUIDE.md` 说明仓库当前没有安卓 App**，与本次新增的
+   `platforms/android/` 一致；该指南本身就是需求来源。
+
+---
+
+## 下一阶段任务（阶段四：接入真实导航）
+
+尚未开始。按用户需求，优先顺序为：
+
+1. **网关 HTTP 客户端**：`/healthz`、`/v1/places`、`/v1/route-options`、`/v1/routes`，
+   严格按 `shared/protocol` 现有 schema，不虚构接口；空配置时明确提示用户配置。
+2. **定位源**：优先 `FusedLocationProviderClient`，在**没有 Google Play 服务**的国内
+   机型上回退到平台 `LocationManager`；保留精度、时间戳、速度与方向；
+   陈旧或精度差的定位按 `NavCore` 规则显式处理为不可用。
+3. **坐标系边界**：定位来源标注坐标系统；网关路线输入为 WGS84；路线几何为 GCJ-02；
+   转换只经共享 `moto::coordinates`，不重复转换、不叠画两种坐标。
+4. **导航会话**：把定位与路线交给共享 `NavCore`，发送 `NavigationSnapshot`、
+   `RouteGeometry`（≤24 点窗口）与 `TrafficDeviation`；处理过期响应与错误网关。
+5. **演示模式**：明确标注为模拟，真实定位或网络失败时**不自动切换**到假数据。
+6. 不虚构红绿灯读秒、道路限速或摩托禁限行；缺数据时按协议表达未知
+   （`speed_limit_kph = 0`、`traffic = Unknown`）。
+
+阶段五（前台服务与锁屏导航）、阶段六（地图下载与可选音乐控制）、
+阶段七（完整测试与交付）、阶段八（Fork 与 Release）见
+[README.md](README.md) 与 [UPSTREAM_CONTRIBUTION.md](UPSTREAM_CONTRIBUTION.md)。
+
+---
+
+## 贡献者
+
+| 角色 | 说明 |
+| --- | --- |
+| 上游项目、协议与共享 C++ 核心 | Maler X（[mx3353672833-debug](https://github.com/mx3353672833-debug)） |
+| Android 移植实现 | [bloodbear111](https://github.com/bloodbear111) |
+
+---
+
+## English summary
+
+**Stage 1 scope: project + BLE connectivity + protocol self-check.**
+
+*Implemented*: a Kotlin + Compose project under `platforms/android/` that reuses
+the upstream `shared/` C++ core (coordinates, NavCore, BLE v1 codec) through
+NDK + CMake + JNI; BLE scanning by service UUID, MTU negotiation, TX
+subscription, the two-step handshake, paced/serialised GATT writes, application
+ACLs, session-scoped heartbeats, command de-duplication and disconnect teardown.
+
+*Verified in this environment*: 37 JVM unit tests pass, `lintDebug` reports no
+issues, and `assembleDebug` produces a 21.97 MiB debug APK with
+`lib/<abi>/libmoto_mobile.so` for arm64-v8a, armeabi-v7a and x86_64.
+
+*Not verified*: anything requiring a phone or the round display. The golden-byte
+self-check, JNI lifetime tests and enum-parity tests exist as instrumented tests
+and have **not** been executed here; no device acceptance is claimed. The debug
+APK is test-only and is not a release build.

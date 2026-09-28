@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<lint>
+    <!--
+      AAPT2 only accepts <adaptive-icon> when it sits in a -v26 resource folder.
+      This was verified by building: moving the files into mipmap-anydpi (as the
+      ObsoleteSdkInt advice suggests) makes `mipmap/ic_launcher` unresolvable and
+      fails resource linking. The check is therefore ignored for that folder
+      only, instead of being disabled for the whole module.
+    -->
+    <issue id="ObsoleteSdkInt">
+        <ignore path="src/main/res/mipmap-anydpi-v26" />
+    </issue>
+</lint>

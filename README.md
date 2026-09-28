@@ -10,7 +10,13 @@
 
 [功能与使用说明书](docs/USER_MANUAL.md) · [真实导航网关配置](docs/GATEWAY_SETUP.md)
 
-**用安卓手机？** [用 AI 开发安卓版本](docs/ANDROID_AI_GUIDE.md)：可复制的开发提示词、蓝牙与导航适配、测试及 GitHub 发布步骤。目前尚无现成的 Android App。
+**用安卓手机？** [用 AI 开发安卓版本](docs/ANDROID_AI_GUIDE.md)：可复制的开发提示词、蓝牙与导航适配、测试及 GitHub 发布步骤。
+贡献者 [bloodbear111](https://github.com/bloodbear111) 基于该指南启动了一个**社区
+Android 原生移植**，源码在 [platforms/android](platforms/android/README.md)：
+它通过 NDK + JNI 复用本仓库的共享 C++ 核心与 BLE v1 协议，不修改圆屏协议，
+也不要求刷写安卓专用固件。**这是社区分支，不是上游官方支持的版本**，上游作者
+未参与审阅或测试；当前进度与真机验证状态见
+[开发进度](platforms/android/DEVELOPMENT_STATUS.md)。
 
 **欢迎一起共创 Glimpse。** 如果你基于这个项目做出了安卓 App，希望你愿意把源码也公开到 GitHub，让其他人能够学习、使用并一起维护。可以先在 [Issues](https://github.com/mx3353672833-debug/moto-gps-waveshare/issues) 聊想做的功能，再通过 Pull Request 贡献代码、修复或文档；请附上构建说明和已测试的机型。我们会保留贡献者署名，相关代码沿用项目现有许可。具体参与方式见 [安卓共创邀请](docs/ANDROID_AI_GUIDE.md#一起开发安卓版本)。
 

@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MOTO GPS</string>
+
+    <!-- Tabs -->
+    <string name="tab_connect">连接</string>
+    <string name="tab_selftest">自检</string>
+    <string name="tab_settings">设置</string>
+
+    <!-- Connection screen -->
+    <string name="ble_status_title">连接状态</string>
+    <string name="ble_frame_size">协议帧大小：%1$d 字节</string>
+    <string name="ble_handshake_note">只有设备第二次回送相同参数的 Ready 后才会发送导航数据。</string>
+    <string name="ble_idle">未连接</string>
+    <string name="ble_scanning_found">扫描中，已发现 %1$d 个设备</string>
+    <string name="ble_connecting">正在连接 %1$s</string>
+    <string name="ble_discovering_services">发现服务中</string>
+    <string name="ble_handshaking">握手：%1$s</string>
+    <string name="ble_protocol_ready">协议就绪 · 帧 %1$d 字节 · 心跳 %2$d ms · 能力 0x%3$s</string>
+    <string name="ble_degraded">链路降级：%1$s</string>
+    <string name="ble_disconnected">已断开：%1$s</string>
+    <string name="ble_failed">失败：%1$s</string>
+    <string name="ble_failed_status">失败：%1$s（状态 %2$d）</string>
+    <string name="ble_unnamed_device">未命名设备</string>
+    <string name="ble_device_detail">%1$s  %2$d dBm</string>
+
+    <string name="scan_start">扫描圆屏</string>
+    <string name="scan_stop">停止扫描</string>
+    <string name="scan_empty">未发现设备。请确认圆屏已开机并正在广播导航服务。</string>
+    <string name="connect">连接</string>
+    <string name="disconnect">断开</string>
+
+    <!-- Permissions and adapter state -->
+    <string name="bluetooth_permission_missing">缺少蓝牙权限，无法扫描或连接圆屏。</string>
+    <string name="grant_bluetooth">授予蓝牙权限</string>
+    <string name="bluetooth_off">蓝牙未开启。</string>
+    <string name="open_bluetooth_settings">打开蓝牙设置</string>
+    <string name="bluetooth_unsupported">此设备不支持蓝牙 LE，无法连接圆屏。</string>
+    <string name="permission_location_missing">缺少定位权限，导航无法读取位置。</string>
+    <string name="permission_location_approximate">目前只有模糊定位权限。导航需要精确位置。</string>
+    <string name="location_ok">已获得精确定位权限。</string>
+    <string name="request_location">请求定位权限</string>
+    <string name="location_title">定位权限</string>
+    <string name="location_note">扫描圆屏使用 neverForLocation，不读取位置；导航定位是另一项独立权限，开始导航时才会请求。</string>
+
+    <!-- Protocol self test -->
+    <string name="selftest_run">运行协议自检</string>
+    <string name="selftest_running">正在运行…</string>
+    <string name="selftest_native_missing">原生协议库不可用，自检无法运行。</string>
+    <string name="selftest_native_missing_detail">原生协议库不可用，自检无法运行。（%1$s）</string>
+    <string name="selftest_summary">%1$d 项通过，%2$d 项失败</string>
+    <string name="selftest_pass">通过 · %1$s</string>
+    <string name="selftest_fail">失败 · %1$s</string>
+    <string name="selftest_intro">对照 shared/protocol/fixtures/ble-navigation-v1.golden.txt 的黄金字节运行上游 C++ 编解码器。</string>
+
+    <!-- Gateway settings -->
+    <string name="gateway_title">导航网关</string>
+    <string name="gateway_help">填写自己部署的 HTTPS 网关根地址。高德 Web 服务 Key 只保存在服务端，不会进入 App。</string>
+    <string name="gateway_hint">https://你的域名/moto-gps/api/</string>
+    <string name="gateway_save">保存</string>
+    <string name="gateway_saved">已保存</string>
+    <string name="gateway_unset">未配置。真实搜索与路线规划需要先填写网关地址。</string>
+</resources>
