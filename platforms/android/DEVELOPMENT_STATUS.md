@@ -333,6 +333,68 @@ lint: No issues found.
 
 ---
 
+## 固件侧新增：车载 G 值仪页面
+
+**需求**：在圆屏固件里加一个加速度计 G 值界面——同心圆 + 十字 + 小球，
+加速度偏向哪边小球往哪边移动，没 G 值时回正，底部用数字显示各向 G 值。
+
+### 设计决定
+
+**没有改协议。** 这个页面由板上 QMI8658 自己驱动，不需要手机给任何数据，
+所以它**不属于 BLE v1 的 `display_page` 枚举**（该枚举保持 4 个值不变）：
+
+* 划进/划出该页是**设备本地**的页面切换；
+* 切到该页时设备**不发送** `PageSelected`，因为 page 值 4 在线上不存在；
+* 手机快照（最高 5 Hz）**不能把页面抢回地图**，否则骑行中一转弯就被拽走；
+* 因为不依赖手机，**断开蓝牙也能用**。
+
+### 改动文件
+
+| 文件 | 改动 |
+| --- | --- |
+| `platforms/esp32/main/accel_gmeter.hpp` | 新增。纯 C++17 小球/读数逻辑，无 LVGL、无 ESP-IDF |
+| `platforms/esp32/main/motion_heading_sensor.{h,cpp}` | 复用已有的 125 Hz QMI8658 采样，新增约 40 Hz 的加速度回调；**唯一的 IMU→屏幕轴映射点**，带注释便于上台架校正 |
+| `shared/nav_ui/include/moto_nav_ui.h` | 新增 `MOTO_UI_PAGE_ACCEL`、`moto_gmeter_state_t`、两个 setter |
+| `shared/nav_ui/src/moto_nav_ui.cpp` | 新增页面绘制、`page_available()` 统一可用性判定、手势跳过不可用页、点阵居中改为按页数计算 |
+| `platforms/esp32/main/phone_nav_bridge.cpp` | 加速度采样入桥接（只存状态、由渲染任务写 LVGL）；本地页不被快照抢走；不向手机上报该页 |
+| `platforms/esp32/main/app_main.cpp` | 把加速度回调接到桥接 |
+| `tests/native/accel_gmeter_tests.cpp` + `tests/native/CMakeLists.txt` | 新增 11 项 host 测试并入 CI |
+
+### 界面（美化部分）
+
+360×360 设计空间内：顶部 `G-FORCE` 标题；中央三层同心圆（外圈较亮，内圈渐隐）
+加十字准线、中心轴点；小球带一层柔光晕；底部三行读数——
+大号**合成 G 值**（`1.02`）、`G RESULTANT` 说明、以及 `X / Y / Z` 三轴 G 值。
+
+数值不变，**颜色随受力程度变化**：<0.35 g 冰蓝 → <0.75 g 白 → <1.2 g 琥珀
+→ 更高红。阈值只影响配色，不影响读数。没有传感器时显示 `NO SENSOR` 而不是
+一个停在中心的球（停在中心会被误读成"车是水平的"）。
+
+### 验证状态（重要）
+
+| 项目 | 状态 |
+| --- | --- |
+| 纯逻辑编译 + 链接（aarch64，项目的 `-Wall -Wextra -Wpedantic -fno-exceptions -fno-rtti`） | ✅ 已执行，0 警告 |
+| 编译进安卓 JNI 库（三个 ABI） | ✅ `assembleDebug` 通过 |
+| host 测试实际运行（`ctest`） | ⬜ **未运行**——本机没有 host C++ 工具链，也未装 ESP-IDF |
+| **固件本体编译（ESP-IDF 5.5.5）** | ⬜ **未编译**——本机没有 ESP-IDF，也没有 LVGL 子模块 |
+| **刷机后在圆屏上实看** | ⬜ **未验证**——没有硬件 |
+
+因此：新页面的 LVGL 代码、页面切换、IMU 轴映射方向都**只经过人工审阅，
+没有编译过、没有上屏过**。轴映射（`kDisplayXSign` / `kDisplayYSign`）是最可能
+需要上台架调整的一处。
+
+### 一个可以立刻做的验证
+
+固件无法在本机编译，所以把 `accel_gmeter.hpp` 的**同一份头文件**编进了安卓
+JNI 库，并在 App 自检里新增 6 项 G 值仪行为检查（静止回正、侧推偏移、
+松手回正、极限值贴边不越界、振动死区、颜色阈值）。
+
+**自检项数因此从 10 项变成 16 项。** 请重新跑一次自检并把结果告诉我——
+这是目前唯一能在真机上执行这段固件逻辑的途径。
+
+---
+
 ## 贡献者
 
 | 角色 | 说明 |

@@ -3,6 +3,7 @@
 #include "moto_golden_fixture.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <string>
@@ -10,6 +11,7 @@
 #include <vector>
 
 #include "moto/ble_protocol/ble_protocol.hpp"
+#include "accel_gmeter.hpp"
 
 namespace moto::android {
 namespace {
@@ -397,6 +399,129 @@ std::vector<GoldenCheck> RunGoldenSelfTest() {
         checks.push_back(std::move(check));
     }
 
+    return checks;
+}
+
+// Verifies the firmware's G-meter ball maths on real hardware.
+//
+// The round-display firmware cannot be compiled in the Android build
+// environment, so this runs the *same* header (platforms/esp32/main/
+// accel_gmeter.hpp) through the phone's self-test. It checks behaviour, not
+// just that the header links: a rest sample must centre the ball, a lateral
+// push must move it sideways, removing the push must re-centre it, and an
+// extreme value must saturate on the rim instead of leaving the dial.
+std::vector<GoldenCheck> RunGmeterSelfTest() {
+    std::vector<GoldenCheck> checks;
+    auto add = [&checks](const std::string& name, bool ok,
+                         const std::string& detail) {
+        GoldenCheck check;
+        check.name = name;
+        check.ok = ok;
+        check.detail = detail;
+        checks.push_back(std::move(check));
+    };
+
+    constexpr float kG = moto::gmeter::kStandardGravity;
+
+    auto at_rest = []() {
+        moto::gmeter::Input input;
+        input.total_z = moto::gmeter::kStandardGravity;
+        return input;
+    };
+    auto feed = [](moto::gmeter::Meter& meter,
+                   const moto::gmeter::Input& input, int samples,
+                   std::uint64_t start_ms) {
+        for (int index = 0; index < samples; ++index) {
+            meter.update(input,
+                         start_ms + static_cast<std::uint64_t>(index) * 25U);
+        }
+    };
+
+    {
+        moto::gmeter::Meter meter;
+        const auto reading = meter.update(at_rest(), 0);
+        char detail[96];
+        std::snprintf(detail, sizeof(detail),
+                      "total=%.3fg ball=(%.3f,%.3f)", reading.total_g,
+                      reading.ball_x, reading.ball_y);
+        add("gmeter:rest-centres-ball",
+            std::abs(reading.total_g - 1.0F) < 0.001F && reading.centered,
+            detail);
+    }
+
+    {
+        moto::gmeter::Meter meter;
+        moto::gmeter::Input push = at_rest();
+        push.linear_x = 0.5F * kG;
+        feed(meter, push, 40, 0);
+        const auto reading = meter.update(push, 1'000);
+        char detail[96];
+        std::snprintf(detail, sizeof(detail),
+                      "ball=(%.3f,%.3f) dynamic=%.3fg", reading.ball_x,
+                      reading.ball_y, reading.dynamic_g);
+        add("gmeter:push-moves-ball-right",
+            reading.ball_x > 0.3F && std::abs(reading.ball_y) < 0.01F, detail);
+    }
+
+    {
+        moto::gmeter::Meter meter;
+        moto::gmeter::Input push = at_rest();
+        push.linear_x = 0.8F * kG;
+        feed(meter, push, 40, 0);
+        const moto::gmeter::Input rest = at_rest();
+        feed(meter, rest, 60, 1'025);
+        const auto reading = meter.update(rest, 2'600);
+        char detail[96];
+        std::snprintf(detail, sizeof(detail), "ball=(%.4f,%.4f)",
+                      reading.ball_x, reading.ball_y);
+        add("gmeter:release-recentres-ball", reading.centered, detail);
+    }
+
+    {
+        moto::gmeter::Meter meter;
+        moto::gmeter::Input hard = at_rest();
+        hard.linear_x = 4.0F * kG;
+        hard.linear_y = 3.0F * kG;
+        feed(meter, hard, 120, 0);
+        const auto reading = meter.update(hard, 3'000);
+        const float radius = std::sqrt(reading.ball_x * reading.ball_x +
+                                       reading.ball_y * reading.ball_y);
+        char detail[96];
+        std::snprintf(detail, sizeof(detail), "radius=%.4f of 1.0", radius);
+        add("gmeter:hard-stop-clamps-to-rim",
+            radius > 0.95F && radius <= 1.0001F, detail);
+    }
+
+    {
+        moto::gmeter::Meter meter;
+        moto::gmeter::Input jitter = at_rest();
+        jitter.linear_x = 0.02F * kG;
+        jitter.linear_y = -0.02F * kG;
+        feed(meter, jitter, 80, 0);
+        const auto reading = meter.update(jitter, 2'000);
+        add("gmeter:vibration-deadband-centres",
+            reading.centered && reading.ball_x == 0.0F,
+            "0.028 g of vibration must not offset the ball");
+    }
+
+    {
+        using moto::gmeter::Severity;
+        using moto::gmeter::severity;
+        const bool ok = severity(0.0F) == Severity::Calm &&
+                        severity(0.5F) == Severity::Moderate &&
+                        severity(0.9F) == Severity::High &&
+                        severity(1.5F) == Severity::Extreme;
+        add("gmeter:severity-thresholds", ok,
+            "0.00 calm, 0.50 moderate, 0.90 high, 1.50 extreme");
+    }
+
+    return checks;
+}
+
+std::vector<GoldenCheck> RunAllSelfTests() {
+    std::vector<GoldenCheck> checks = RunGoldenSelfTest();
+    std::vector<GoldenCheck> gmeter = RunGmeterSelfTest();
+    checks.insert(checks.end(), gmeter.begin(), gmeter.end());
     return checks;
 }
 

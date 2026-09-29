@@ -5,8 +5,10 @@
 #include <cstdint>
 #include <mutex>
 
+#include "accel_gmeter.hpp"
 #include "moto/ble_protocol/ble_protocol.hpp"
 #include "moto_nav_presenter.hpp"
+#include "motion_heading_sensor.h"
 #include "motion_heading_fusion.hpp"
 
 #ifdef ESP_PLATFORM
@@ -34,6 +36,9 @@ class PhoneNavBridge {
 #endif
   void on_link_state(bool active);
   void on_imu_sample(float heading_rate_dps, std::uint64_t sample_ms);
+  // Called from the QMI8658 task. Like on_imu_sample it only retains state and
+  // signals the render task; it never touches LVGL directly.
+  void on_accel_sample(const AccelSample& sample);
   void update_demo(std::uint64_t now_ms);
   moto::ble::AckStatus on_message(
       const moto::ble::ReassembledMessage& message);
@@ -114,6 +119,7 @@ class PhoneNavBridge {
     RenderNavigation = 1U << 0U,
     RenderMotion = 1U << 1U,
     RenderMedia = 1U << 2U,
+    RenderGmeter = 1U << 3U,
   };
   std::atomic<std::uint32_t> pending_render_flags_{0};
 #ifdef ESP_PLATFORM
@@ -121,6 +127,16 @@ class PhoneNavBridge {
 #endif
   MotionHeadingFusion heading_fusion_;
   std::uint64_t last_motion_present_ms_ = 0;
+  moto::gmeter::Meter gmeter_;
+  moto_gmeter_state_t gmeter_state_{};
+  moto_gmeter_state_t render_gmeter_state_{};
+  bool render_gmeter_valid_ = false;
+  // True while the rider is looking at the onboard G meter. Navigation
+  // snapshots must not steal that page, and the page must never be reported to
+  // the phone as a v1 display_page value.
+  bool local_accel_page_ = false;
+  bool gmeter_page_enabled_ = false;
+  bool render_gmeter_page_enabled_ = false;
   moto::nav::NavSnapshot snapshot_before_demo_{};
   std::uint64_t demo_started_ms_ = 0;
   bool demo_active_ = false;

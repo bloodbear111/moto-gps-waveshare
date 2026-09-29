@@ -106,6 +106,12 @@ target_include_directories(motion_heading_fusion_tests PRIVATE
 )
 target_compile_features(motion_heading_fusion_tests PRIVATE cxx_std_17)
 
+add_executable(accel_gmeter_tests accel_gmeter_tests.cpp)
+target_include_directories(accel_gmeter_tests PRIVATE
+  "${CMAKE_CURRENT_LIST_DIR}/../../platforms/esp32/main"
+)
+target_compile_features(accel_gmeter_tests PRIVATE cxx_std_17)
+
 find_package(Threads REQUIRED)
 add_executable(phone_nav_bridge_tests
   phone_nav_bridge_tests.cpp
@@ -136,4 +142,5 @@ add_test(NAME nav_presenter_tests COMMAND nav_presenter_tests)
 add_test(NAME ble_protocol_tests COMMAND ble_protocol_tests)
 add_test(NAME connection_epoch_gate_tests COMMAND connection_epoch_gate_tests)
 add_test(NAME motion_heading_fusion_tests COMMAND motion_heading_fusion_tests)
+add_test(NAME accel_gmeter_tests COMMAND accel_gmeter_tests)
 add_test(NAME phone_nav_bridge_tests COMMAND phone_nav_bridge_tests)

@@ -44,6 +44,8 @@ extern "C" void moto_nav_ui_set_page_change_callback(
     void*) {}
 extern "C" void moto_nav_ui_set_music_state(const moto_music_state_t*) {}
 extern "C" void moto_nav_ui_set_music_page_enabled(uint8_t) {}
+extern "C" void moto_nav_ui_set_gmeter_state(const moto_gmeter_state_t*) {}
+extern "C" void moto_nav_ui_set_gmeter_page_enabled(uint8_t) {}
 extern "C" void moto_nav_ui_set_music_command_callback(
     moto_music_command_callback_t,
     void*) {}

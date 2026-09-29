@@ -58,8 +58,42 @@ typedef enum {
     MOTO_UI_PAGE_SPEED,
     MOTO_UI_PAGE_COMPASS,
     MOTO_UI_PAGE_MUSIC,
+    /**
+     * Onboard G meter. This page is driven by the device's own QMI8658 and
+     * needs nothing from the phone, so it is deliberately NOT part of the BLE
+     * v1 display_page enumeration (which stays at four values). Swiping into it
+     * is a local page change; the firmware must not report it to the phone as a
+     * PageSelected command, and it keeps working with the phone disconnected.
+     */
+    MOTO_UI_PAGE_ACCEL,
     MOTO_UI_PAGE_COUNT,
 } moto_ui_page_t;
+
+/**
+ * One G meter reading, already in display space.
+ *
+ * ball_x/ball_y are normalised to the dial: +x is screen right, +y is screen
+ * up, and the radius is clamped to 1.0 by the producer. The numeric fields are
+ * in g so the renderer only has to format them.
+ */
+typedef struct {
+    float ball_x;
+    float ball_y;
+    float dynamic_g;
+    float total_g;
+    float axis_x_g;
+    float axis_y_g;
+    float axis_z_g;
+    /**
+     * How hard the rider is being pushed: 0 calm, 1 moderate, 2 high,
+     * 3 extreme. The producer decides the thresholds (the firmware derives
+     * them from the QMI8658 header); this layer only maps them to a colour, so
+     * the shared UI never depends on a platform sensor header.
+     */
+    uint8_t severity;
+    /** 0 when no accelerometer sample is available yet. */
+    uint8_t valid;
+} moto_gmeter_state_t;
 
 typedef enum {
     MOTO_MUSIC_PREVIOUS = 0,
@@ -163,6 +197,16 @@ void moto_nav_ui_set_page_change_callback(
     void *context);
 void moto_nav_ui_set_music_state(const moto_music_state_t *state);
 void moto_nav_ui_set_music_page_enabled(uint8_t enabled);
+/**
+ * Push the newest G meter reading. Called from the sensor path at about 40 Hz,
+ * so it must stay cheap: it only repositions and restyles existing objects.
+ */
+void moto_nav_ui_set_gmeter_state(const moto_gmeter_state_t *state);
+/**
+ * Hide the G meter page entirely when this board has no working accelerometer,
+ * so a swipe never lands on a permanently empty screen.
+ */
+void moto_nav_ui_set_gmeter_page_enabled(uint8_t enabled);
 void moto_nav_ui_set_music_command_callback(
     moto_music_command_callback_t callback,
     void *context);

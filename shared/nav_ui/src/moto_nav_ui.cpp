@@ -43,6 +43,21 @@ static_assert(LV_DEF_REFR_PERIOD == kRouteMotionFrameMs,
               "LVGL refresh and map motion must use the same cadence");
 constexpr std::uint32_t kConnectionSuccessHoldMs = 920;
 
+// Onboard G meter geometry, in the same 360-unit design space as the other
+// pages. The dial sits above centre so the numeric readout has room beneath it,
+// and nothing intrudes on the page dots at y=337.
+constexpr int kGmeterDialOffsetY = -46;
+constexpr int kGmeterOuterRadius = 84;
+constexpr int kGmeterRingRadii[3] = {84, 57, 29};
+constexpr int kGmeterRingCount = 3;
+constexpr int kGmeterCrossArm = 96;
+constexpr int kGmeterBallRadius = 13;
+constexpr int kGmeterGlowRadius = 24;
+constexpr int kGmeterHubRadius = 3;
+// Page dot strip: 22-unit steps with a 6-unit gap after the widest (active)
+// dot, centred for however many pages exist.
+constexpr int kPageDotStep = 22;
+
 enum class LifecycleVisual : std::uint8_t {
     Hidden = 0,
     PhoneOffline,
@@ -171,6 +186,19 @@ struct Ui {
     char music_title_text[64]{};
     char music_artist_text[48]{};
 
+    lv_obj_t *gmeter_rings[kGmeterRingCount]{};
+    lv_obj_t *gmeter_cross[2]{};
+    lv_point_precise_t gmeter_cross_points[2][2]{};
+    lv_obj_t *gmeter_hub = nullptr;
+    lv_obj_t *gmeter_glow = nullptr;
+    lv_obj_t *gmeter_ball = nullptr;
+    lv_obj_t *gmeter_value = nullptr;
+    lv_obj_t *gmeter_caption = nullptr;
+    lv_obj_t *gmeter_axes = nullptr;
+    lv_obj_t *gmeter_status = nullptr;
+    moto_gmeter_state_t gmeter{};
+    bool gmeter_page_enabled = false;
+
     moto_music_command_callback_t music_callback = nullptr;
     void *music_callback_context = nullptr;
     moto_page_change_callback_t page_callback = nullptr;
@@ -274,14 +302,53 @@ void draw_vehicle_marker(lv_event_t *event) {
     lv_draw_triangle(layer, &triangle);
 }
 
+// Circle primitive shared by the G meter dial. LVGL has no circle object, so
+// every ring/hub/ball is a fully rounded rectangle with an optional border.
+lv_obj_t *make_disc(lv_obj_t *parent, int diameter, lv_color_t fill,
+                    lv_opa_t fill_opacity, int border_width,
+                    lv_color_t border) {
+    lv_obj_t *disc = lv_obj_create(parent);
+    lv_obj_remove_style_all(disc);
+    lv_obj_set_size(disc, px(diameter), px(diameter));
+    lv_obj_set_style_radius(disc, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(disc, fill, 0);
+    lv_obj_set_style_bg_opa(disc, fill_opacity, 0);
+    if(border_width > 0) {
+        lv_obj_set_style_border_color(disc, border, 0);
+        lv_obj_set_style_border_width(disc, px(border_width), 0);
+        lv_obj_set_style_border_opa(disc, LV_OPA_COVER, 0);
+    }
+    lv_obj_clear_flag(disc, LV_OBJ_FLAG_CLICKABLE);
+    return disc;
+}
+
+// A page is only offered to the rider when its data source exists. The music
+// page needs a phone that can report media state, and the G meter needs a
+// working accelerometer, so neither may become a dead end after a swipe.
+bool page_available(moto_ui_page_t page) {
+    switch(page) {
+        case MOTO_UI_PAGE_MUSIC: return ui.music_page_enabled;
+        case MOTO_UI_PAGE_ACCEL: return ui.gmeter_page_enabled;
+        case MOTO_UI_PAGE_NAVIGATION:
+        case MOTO_UI_PAGE_SPEED:
+        case MOTO_UI_PAGE_COMPASS: return true;
+        case MOTO_UI_PAGE_COUNT:
+        default: return false;
+    }
+}
+
 void update_page_dots() {
+    const int count = static_cast<int>(MOTO_UI_PAGE_COUNT);
+    const int strip_width = count * kPageDotStep - (kPageDotStep - 16);
+    const int origin = (kDesignWidth - strip_width) / 2;
     for(int i = 0; i < MOTO_UI_PAGE_COUNT; ++i) {
         const bool active = i == static_cast<int>(ui.page);
         lv_obj_set_size(ui.page_dots[i], px(active ? 16 : 5), px(5));
         lv_obj_set_style_radius(ui.page_dots[i], px(3), 0);
         lv_obj_set_style_bg_color(ui.page_dots[i], active ? kWhite : kGraphite, 0);
-        lv_obj_set_x(ui.page_dots[i], px(145 + i * 22 - (active ? 5 : 0)));
-        const bool available = i != MOTO_UI_PAGE_MUSIC || ui.music_page_enabled;
+        lv_obj_set_x(ui.page_dots[i],
+                     px(origin + i * kPageDotStep - (active ? 5 : 0)));
+        const bool available = page_available(static_cast<moto_ui_page_t>(i));
         if(ui.page_dots_visible && available) {
             lv_obj_remove_flag(ui.page_dots[i], LV_OBJ_FLAG_HIDDEN);
         } else {
@@ -323,7 +390,7 @@ void install_interaction_wake(lv_obj_t *object) {
 
 void show_page(moto_ui_page_t page, bool reveal_on_same_page = false) {
     if(page < MOTO_UI_PAGE_NAVIGATION || page >= MOTO_UI_PAGE_COUNT) return;
-    if(page == MOTO_UI_PAGE_MUSIC && !ui.music_page_enabled) {
+    if(!page_available(page)) {
         page = MOTO_UI_PAGE_NAVIGATION;
     }
     const bool changed = page != ui.page;
@@ -345,17 +412,17 @@ void gesture_event(lv_event_t *) {
     lv_indev_t *indev = lv_indev_active();
     if(indev == nullptr) return;
     const lv_dir_t direction = lv_indev_get_gesture_dir(indev);
-    int next = static_cast<int>(ui.page);
-    if(direction == LV_DIR_LEFT) {
-        next = (next + 1) % MOTO_UI_PAGE_COUNT;
-    } else if(direction == LV_DIR_RIGHT) {
-        next = (next + MOTO_UI_PAGE_COUNT - 1) % MOTO_UI_PAGE_COUNT;
-    } else {
+    if(direction != LV_DIR_LEFT && direction != LV_DIR_RIGHT) {
         return;
     }
-    if(!ui.music_page_enabled && next == MOTO_UI_PAGE_MUSIC) {
-        next = direction == LV_DIR_LEFT ? MOTO_UI_PAGE_NAVIGATION
-                                        : MOTO_UI_PAGE_COMPASS;
+    // Walk in the swipe direction until an available page is found, so a hidden
+    // page is skipped rather than trapping the gesture.
+    const int step = direction == LV_DIR_LEFT ? 1 : -1;
+    const int count = static_cast<int>(MOTO_UI_PAGE_COUNT);
+    int next = static_cast<int>(ui.page);
+    for(int attempt = 0; attempt < count; ++attempt) {
+        next = (next + step + count) % count;
+        if(page_available(static_cast<moto_ui_page_t>(next))) break;
     }
     const auto requested = static_cast<moto_ui_page_t>(next);
     if(ui.page_callback != nullptr) {
@@ -1759,6 +1826,140 @@ void create_compass_page() {
     lv_obj_align(ui.compass_speed, LV_ALIGN_CENTER, 0, px(57));
 }
 
+void update_gmeter_view() {
+    if(ui.gmeter_ball == nullptr) return;
+
+    if(ui.gmeter.valid == 0) {
+        // No accelerometer (or no sample yet): say so instead of drawing a
+        // ball at rest, which would read as "the bike is level".
+        lv_obj_add_flag(ui.gmeter_ball, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(ui.gmeter_glow, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(ui.gmeter_axes, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(ui.gmeter_status, LV_OBJ_FLAG_HIDDEN);
+        lv_label_set_text(ui.gmeter_value, "--");
+        lv_obj_set_style_text_color(ui.gmeter_value, kQuiet, 0);
+        return;
+    }
+
+    lv_obj_remove_flag(ui.gmeter_ball, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(ui.gmeter_glow, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(ui.gmeter_axes, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui.gmeter_status, LV_OBJ_FLAG_HIDDEN);
+
+    // Tint by how hard the rider is being pushed. The number stays the exact
+    // measurement; only the colour carries the warning.
+    const lv_color_t accent =
+        ui.gmeter.severity >= 3 ? kRed
+        : ui.gmeter.severity == 2 ? kAmber
+        : ui.gmeter.severity == 1 ? kWhite
+                                  : kIce;
+    lv_obj_set_style_bg_color(ui.gmeter_ball, accent, 0);
+    lv_obj_set_style_bg_color(ui.gmeter_glow, accent, 0);
+    lv_obj_set_style_text_color(ui.gmeter_value, accent, 0);
+
+    const float ball_x = std::clamp(ui.gmeter.ball_x, -1.0F, 1.0F);
+    const float ball_y = std::clamp(ui.gmeter.ball_y, -1.0F, 1.0F);
+    // Keep the whole ball inside the rim by shrinking the travel radius.
+    const int travel = px(kGmeterOuterRadius - kGmeterBallRadius);
+    const int centre_x = px(180);
+    const int centre_y = px(180 + kGmeterDialOffsetY);
+    const int offset_x = static_cast<int>(std::lround(ball_x * travel));
+    // Display +y is up, screen +y is down.
+    const int offset_y = static_cast<int>(std::lround(-ball_y * travel));
+    const int ball_size = px(kGmeterBallRadius * 2);
+    const int glow_size = px(kGmeterGlowRadius * 2);
+    lv_obj_set_pos(ui.gmeter_glow, centre_x + offset_x - glow_size / 2,
+                   centre_y + offset_y - glow_size / 2);
+    lv_obj_set_pos(ui.gmeter_ball, centre_x + offset_x - ball_size / 2,
+                   centre_y + offset_y - ball_size / 2);
+
+    lv_label_set_text_fmt(ui.gmeter_value, "%.2f",
+                          static_cast<double>(ui.gmeter.total_g));
+    lv_label_set_text_fmt(ui.gmeter_axes, "X %+.2f   Y %+.2f   Z %+.2f",
+                          static_cast<double>(ui.gmeter.axis_x_g),
+                          static_cast<double>(ui.gmeter.axis_y_g),
+                          static_cast<double>(ui.gmeter.axis_z_g));
+}
+
+void create_gmeter_page() {
+    lv_obj_t *page = ui.pages[MOTO_UI_PAGE_ACCEL];
+
+    lv_obj_t *title = make_label(page, &lv_font_montserrat_16, kQuiet,
+                                 "G-FORCE");
+    lv_obj_set_style_text_letter_space(title, px(4), 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, px(26));
+
+    const int dial_x = px(180);
+    const int dial_y = px(180 + kGmeterDialOffsetY);
+
+    // Concentric target rings. The outer rim carries the strongest border; the
+    // inner ones recede so the ball stays the brightest element on the page.
+    for(int i = 0; i < kGmeterRingCount; ++i) {
+        ui.gmeter_rings[i] = make_disc(page, kGmeterRingRadii[i] * 2, kBlack,
+                                       LV_OPA_TRANSP, i == 0 ? 2 : 1,
+                                       i == 0 ? kGraphite : kRoadMinor);
+        lv_obj_align(ui.gmeter_rings[i], LV_ALIGN_CENTER, 0,
+                     px(kGmeterDialOffsetY));
+    }
+
+    // Crosshair drawn as two full-canvas lines so it shares the canvas origin
+    // with every other page's line work.
+    const int arm = px(kGmeterCrossArm);
+    for(int i = 0; i < 2; ++i) {
+        ui.gmeter_cross[i] = lv_line_create(page);
+        lv_obj_set_size(ui.gmeter_cross[i], MOTO_UI_CANVAS_WIDTH,
+                        MOTO_UI_CANVAS_HEIGHT);
+        if(i == 0) {
+            ui.gmeter_cross_points[i][0] = {
+                static_cast<lv_value_precise_t>(dial_x - arm),
+                static_cast<lv_value_precise_t>(dial_y)};
+            ui.gmeter_cross_points[i][1] = {
+                static_cast<lv_value_precise_t>(dial_x + arm),
+                static_cast<lv_value_precise_t>(dial_y)};
+        } else {
+            ui.gmeter_cross_points[i][0] = {
+                static_cast<lv_value_precise_t>(dial_x),
+                static_cast<lv_value_precise_t>(dial_y - arm)};
+            ui.gmeter_cross_points[i][1] = {
+                static_cast<lv_value_precise_t>(dial_x),
+                static_cast<lv_value_precise_t>(dial_y + arm)};
+        }
+        lv_line_set_points_mutable(ui.gmeter_cross[i],
+                                   ui.gmeter_cross_points[i], 2);
+        lv_obj_set_style_line_width(ui.gmeter_cross[i], px(1), 0);
+        lv_obj_set_style_line_color(ui.gmeter_cross[i], kRoadMinor, 0);
+    }
+
+    ui.gmeter_hub = make_disc(page, kGmeterHubRadius * 2, kQuiet, LV_OPA_COVER,
+                              0, kQuiet);
+    lv_obj_align(ui.gmeter_hub, LV_ALIGN_CENTER, 0, px(kGmeterDialOffsetY));
+
+    // The glow is created before the ball so the solid sphere paints on top.
+    ui.gmeter_glow = make_disc(page, kGmeterGlowRadius * 2, kIce, LV_OPA_20, 0,
+                               kIce);
+    ui.gmeter_ball = make_disc(page, kGmeterBallRadius * 2, kIce,
+                               LV_OPA_COVER, 0, kIce);
+
+    ui.gmeter_status = make_label(page, &lv_font_montserrat_16, kQuiet,
+                                  "NO SENSOR");
+    lv_obj_set_style_text_letter_space(ui.gmeter_status, px(3), 0);
+    lv_obj_align(ui.gmeter_status, LV_ALIGN_CENTER, 0, px(kGmeterDialOffsetY));
+    lv_obj_add_flag(ui.gmeter_status, LV_OBJ_FLAG_HIDDEN);
+
+    ui.gmeter_value = make_label(page, &lv_font_montserrat_48, kIce, "0.00");
+    lv_obj_align(ui.gmeter_value, LV_ALIGN_CENTER, 0, px(66));
+    ui.gmeter_caption = make_label(page, &lv_font_montserrat_16, kQuiet,
+                                   "G  RESULTANT");
+    lv_obj_set_style_text_letter_space(ui.gmeter_caption, px(2), 0);
+    lv_obj_align(ui.gmeter_caption, LV_ALIGN_CENTER, 0, px(100));
+    ui.gmeter_axes = make_label(page, &lv_font_montserrat_16, kSoft,
+                                "X +0.00   Y +0.00   Z +1.00");
+    lv_obj_align(ui.gmeter_axes, LV_ALIGN_CENTER, 0, px(126));
+
+    ui.gmeter = moto_gmeter_state_t{};
+    update_gmeter_view();
+}
+
 void create_music_page() {
     lv_obj_t *page = ui.pages[MOTO_UI_PAGE_MUSIC];
     ui.music_source = make_label(page, &lv_font_montserrat_16, kQuiet, "APPLE MUSIC");
@@ -1979,6 +2180,7 @@ extern "C" void moto_nav_ui_create(void) {
     create_speed_page();
     create_compass_page();
     create_music_page();
+    create_gmeter_page();
     create_page_dots();
     // Press events are delivered to the topmost object under the finger, not
     // necessarily to its page. Register once across the finished tree so any
@@ -2001,7 +2203,13 @@ extern "C" void moto_nav_ui_create(void) {
 
 extern "C" void moto_nav_ui_set_state(const moto_ui_state_t *state) {
     if(state == nullptr || ui.screen == nullptr) return;
-    show_page(state->page);
+    // A navigation snapshot arrives at up to 5 Hz and always names the page the
+    // phone wants. While the rider is on the onboard G meter, those updates must
+    // not steal the page back to the map mid-corner; the device owns this page
+    // and only a swipe leaves it.
+    if(ui.page != MOTO_UI_PAGE_ACCEL || state->page == MOTO_UI_PAGE_ACCEL) {
+        show_page(state->page);
+    }
     // Hidden pages do not need to be invalidated. Page changes immediately
     // apply a fresh snapshot through PhoneNavBridge, so this keeps every page
     // correct while avoiding three full page redraws per navigation update.
@@ -2010,6 +2218,8 @@ extern "C" void moto_nav_ui_set_state(const moto_ui_state_t *state) {
         case MOTO_UI_PAGE_SPEED: update_speedometer(state); break;
         case MOTO_UI_PAGE_COMPASS: update_compass(state); break;
         case MOTO_UI_PAGE_MUSIC:
+        // The G meter page is driven by its own setter, not by navigation state.
+        case MOTO_UI_PAGE_ACCEL:
         case MOTO_UI_PAGE_COUNT: break;
     }
 }
@@ -2101,6 +2311,25 @@ extern "C" void moto_nav_ui_set_music_page_enabled(uint8_t enabled) {
     if(ui.screen == nullptr) return;
     ui.music_page_enabled = enabled != 0;
     if(!ui.music_page_enabled && ui.page == MOTO_UI_PAGE_MUSIC) {
+        show_page(MOTO_UI_PAGE_NAVIGATION, true);
+    }
+    update_page_dots();
+}
+
+extern "C" void moto_nav_ui_set_gmeter_state(const moto_gmeter_state_t *state) {
+    if(state == nullptr || ui.screen == nullptr) return;
+    ui.gmeter = *state;
+    update_gmeter_view();
+}
+
+extern "C" void moto_nav_ui_set_gmeter_page_enabled(uint8_t enabled) {
+    if(ui.screen == nullptr) return;
+    const bool next = enabled != 0;
+    if(next == ui.gmeter_page_enabled) return;
+    ui.gmeter_page_enabled = next;
+    if(!next && ui.page == MOTO_UI_PAGE_ACCEL) {
+        // The accelerometer disappeared (or never worked): never strand the
+        // rider on a page that can no longer show anything.
         show_page(MOTO_UI_PAGE_NAVIGATION, true);
     }
     update_page_dots();

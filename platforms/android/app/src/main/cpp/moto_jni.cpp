@@ -945,7 +945,7 @@ extern "C" JNIEXPORT jobjectArray JNICALL
 Java_io_github_bloodbear111_motogps_protocol_MotoProtocolCodec_nativeRunGoldenSelfTest(
     JNIEnv* env, jclass) {
     const std::vector<moto::android::GoldenCheck> checks =
-        moto::android::RunGoldenSelfTest();
+        moto::android::RunAllSelfTests();
     std::vector<std::string> lines;
     lines.reserve(checks.size());
     for (const auto& check : checks) {
@@ -1319,7 +1319,7 @@ extern "C" JNIEXPORT jobjectArray JNICALL
 Java_io_github_bloodbear111_motogps_navigation_MotoNavCore_nativeGoldenSelfTest(
     JNIEnv* env, jclass) {
     const std::vector<moto::android::GoldenCheck> checks =
-        moto::android::RunGoldenSelfTest();
+        moto::android::RunAllSelfTests();
     std::vector<std::string> lines;
     lines.reserve(checks.size());
     for (const auto& check : checks) {

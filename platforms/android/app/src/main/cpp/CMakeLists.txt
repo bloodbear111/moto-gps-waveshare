@@ -48,6 +48,12 @@ add_library(moto_mobile SHARED
 target_include_directories(moto_mobile PRIVATE
     "${CMAKE_CURRENT_BINARY_DIR}/generated"
     "${CMAKE_CURRENT_LIST_DIR}"
+    # accel_gmeter.hpp is pure C++17 with no LVGL/ESP-IDF dependency, so the
+    # same header that drives the round display's G meter is compiled here and
+    # checked from the on-device self-test. The firmware cannot be built in this
+    # environment, so this is how its ball/maths behaviour is verified on real
+    # hardware instead of only asserted in a host test nobody has run.
+    "${MOTO_REPO_ROOT}/platforms/esp32/main"
 )
 
 target_link_libraries(moto_mobile

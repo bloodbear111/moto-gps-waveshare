@@ -224,6 +224,11 @@ moto::ble::DisplayPage map_page(moto_ui_page_t page) {
     case MOTO_UI_PAGE_SPEED: return moto::ble::DisplayPage::Speed;
     case MOTO_UI_PAGE_COMPASS: return moto::ble::DisplayPage::Compass;
     case MOTO_UI_PAGE_MUSIC: return moto::ble::DisplayPage::Music;
+    // The onboard G meter is device-local; the BLE v1 display_page enumeration
+    // has exactly four values and must not grow one for a page the phone cannot
+    // ask for. page_changed() returns before ever calling this with the G meter
+    // page, so reaching here would be a bug rather than a supported mapping.
+    case MOTO_UI_PAGE_ACCEL:
     case MOTO_UI_PAGE_NAVIGATION:
     case MOTO_UI_PAGE_COUNT:
     default: return moto::ble::DisplayPage::Navigation;
@@ -352,6 +357,44 @@ void PhoneNavBridge::on_link_state(bool active) {
   const std::uint32_t flags = static_cast<std::uint32_t>(RenderNavigation) |
       (active ? 0U : static_cast<std::uint32_t>(RenderMedia));
   request_render(flags);
+}
+
+void PhoneNavBridge::on_accel_sample(const AccelSample& sample) {
+  moto::gmeter::Input input;
+  input.linear_x = sample.linear_x;
+  input.linear_y = sample.linear_y;
+  input.total_x = sample.total_x;
+  input.total_y = sample.total_y;
+  input.total_z = sample.total_z;
+
+  bool on_accel_page = false;
+  bool became_available = false;
+  {
+    const std::lock_guard<std::mutex> lock(state_mutex_);
+    const moto::gmeter::Reading reading = gmeter_.update(input, sample.sample_ms);
+    gmeter_state_.ball_x = reading.ball_x;
+    gmeter_state_.ball_y = reading.ball_y;
+    gmeter_state_.dynamic_g = reading.dynamic_g;
+    gmeter_state_.total_g = reading.total_g;
+    gmeter_state_.axis_x_g = reading.axis_x_g;
+    gmeter_state_.axis_y_g = reading.axis_y_g;
+    gmeter_state_.axis_z_g = reading.axis_z_g;
+    gmeter_state_.severity =
+        static_cast<std::uint8_t>(moto::gmeter::severity(reading.dynamic_g));
+    gmeter_state_.valid = 1;
+    // The page exists only once real samples arrive. A board whose QMI8658
+    // failed to initialise therefore never offers a permanently empty page.
+    if (!gmeter_page_enabled_) {
+      gmeter_page_enabled_ = true;
+      became_available = true;
+    }
+    on_accel_page = local_accel_page_;
+  }
+  // Reproject at the 40 Hz display cadence, and only while the page is visible.
+  // Rendering a hidden page would burn CPU and panel bandwidth for nothing.
+  if (on_accel_page || became_available) {
+    request_render(RenderGmeter);
+  }
 }
 
 void PhoneNavBridge::on_imu_sample(float heading_rate_dps,
@@ -930,6 +973,7 @@ void PhoneNavBridge::render_pending() {
   const bool navigation = (requested & RenderNavigation) != 0U;
   const bool motion = !navigation && (requested & RenderMotion) != 0U;
   const bool media = (requested & RenderMedia) != 0U;
+  const bool gmeter = (requested & RenderGmeter) != 0U;
   {
     const std::lock_guard<std::mutex> lock(state_mutex_);
     if (navigation || motion) {
@@ -942,6 +986,11 @@ void PhoneNavBridge::render_pending() {
     }
     if (media) {
       render_media_state_ = media_state_;
+    }
+    if (gmeter) {
+      render_gmeter_state_ = gmeter_state_;
+      render_gmeter_valid_ = gmeter_state_.valid != 0U;
+      render_gmeter_page_enabled_ = gmeter_page_enabled_;
     }
   }
 
@@ -972,6 +1021,13 @@ void PhoneNavBridge::render_pending() {
     presenter_.apply_to_lvgl();
   } else if (motion) {
     moto_nav_ui_set_motion_state(&presenter_.ui_state());
+  }
+  if (gmeter) {
+    moto_nav_ui_set_gmeter_page_enabled(
+        render_gmeter_page_enabled_ ? 1U : 0U);
+    if (render_gmeter_valid_) {
+      moto_nav_ui_set_gmeter_state(&render_gmeter_state_);
+    }
   }
   if (media) {
     moto_music_state_t state{};
@@ -1006,10 +1062,30 @@ void PhoneNavBridge::run_renderer() {
 
 void PhoneNavBridge::page_changed(moto_ui_page_t page, void* context) {
   auto* self = static_cast<PhoneNavBridge*>(context);
+  if (page == MOTO_UI_PAGE_ACCEL) {
+    // The onboard G meter is a device-local tool page. It is deliberately not
+    // part of the BLE v1 display_page enumeration, so:
+    //  * the snapshot page is left untouched (reporting "Navigation" here would
+    //    make the phone's page indicator disagree with the rider's screen), and
+    //  * no PageSelected command is sent, because page 4 does not exist on the
+    //    wire and the phone must not receive an unknown enum value.
+    {
+      const std::lock_guard<std::mutex> lock(self->state_mutex_);
+      self->local_accel_page_ = true;
+    }
+    moto_nav_ui_set_page(MOTO_UI_PAGE_ACCEL);
+    self->request_render(RenderGmeter);
+    return;
+  }
   {
     const std::lock_guard<std::mutex> lock(self->state_mutex_);
+    self->local_accel_page_ = false;
     self->snapshot_.display_page = map_nav_page(page);
   }
+  // Leave the local page explicitly and immediately. Waiting for the next
+  // navigation render would leave the rider staring at the G meter after
+  // swiping away from it.
+  moto_nav_ui_set_page(page);
   self->present_navigation();
   self->send_page_command(page);
 }

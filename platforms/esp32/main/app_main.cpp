@@ -32,6 +32,10 @@ void update_motion_heading(float heading_rate_dps, std::uint64_t sample_ms,
                                                        sample_ms);
 }
 
+void update_acceleration(const AccelSample& sample, void* context) {
+  static_cast<PhoneNavBridge*>(context)->on_accel_sample(sample);
+}
+
 void demo_tick_task(void* context) {
   auto* bridge = static_cast<PhoneNavBridge*>(context);
   while (true) {
@@ -195,8 +199,9 @@ extern "C" void app_main(void) {
   }
 
   static MotionHeadingSensor motion_sensor;
-  const esp_err_t motion_result = motion_sensor.start(update_motion_heading,
-                                                      &phone_bridge);
+  const esp_err_t motion_result =
+      motion_sensor.start(update_motion_heading, &phone_bridge,
+                          update_acceleration, &phone_bridge);
   if (motion_result != ESP_OK) {
     ESP_LOGW(kTag, "QMI8658 heading assist could not start: %s",
              esp_err_to_name(motion_result));
