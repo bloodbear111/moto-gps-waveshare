@@ -377,12 +377,48 @@ lint: No issues found.
 | 纯逻辑编译 + 链接（aarch64，项目的 `-Wall -Wextra -Wpedantic -fno-exceptions -fno-rtti`） | ✅ 已执行，0 警告 |
 | 编译进安卓 JNI 库（三个 ABI） | ✅ `assembleDebug` 通过 |
 | host 测试实际运行（`ctest`） | ⬜ **未运行**——本机没有 host C++ 工具链，也未装 ESP-IDF |
-| **固件本体编译（ESP-IDF 5.5.5）** | ⬜ **未编译**——本机没有 ESP-IDF，也没有 LVGL 子模块 |
+| **固件本体编译（ESP-IDF 5.5.5）** | ✅ **编译 + 链接通过**，见下节 |
 | **刷机后在圆屏上实看** | ⬜ **未验证**——没有硬件 |
 
-因此：新页面的 LVGL 代码、页面切换、IMU 轴映射方向都**只经过人工审阅，
-没有编译过、没有上屏过**。轴映射（`kDisplayXSign` / `kDisplayYSign`）是最可能
-需要上台架调整的一处。
+因此：新页面的 LVGL 代码与页面切换**已经过真实编译**（见下节），但
+**没有上屏看过**，IMU 轴映射方向仍未验证。轴映射
+（`kDisplayXSign` / `kDisplayYSign`）是最可能需要上台架调整的一处。
+
+### 固件编译验证（已执行）
+
+环境：ESP-IDF **v5.5.5**（`v5.5.5` 发布包）、LVGL **9.5.0**（子模块固定提交
+`85aa60d1`）、Python 3.11.9、xtensa-esp-elf / esp-clang 工具链，目标 `esp32s3`。
+
+```text
+idf.py -C platforms/esp32 -B D:\mgbuild set-target esp32s3   # 配置 + 解析组件
+idf.py -C platforms/esp32 -B D:\mgbuild build                # [2147/2147] 全部完成
+Project build complete.
+  moto_gps_esp32.bin   1,296,384 bytes   app 分区占用 15%（85% 空闲）
+  bootloader.bin          22,272 bytes
+  partition-table.bin      3,072 bytes
+  idf.py exit=0
+```
+
+* 解析到的组件包含 `waveshare/esp32_s3_touch_amoled_1_75c`、`waveshare/qmi8658`、
+  `espressif/esp_lvgl_adapter`、`lvgl/lvgl 9.5.0`（用仓库子模块路径）。
+* **`G-FORCE` / `NO SENSOR` / `G  RESULTANT` 与轴值格式串都能在 `moto_gps_esp32.elf`
+  里找到**，说明新页面确实被编进了固件，而不是被条件编译跳过。
+* 强制重编我改动的四个文件后，**告警全部来自 ESP-IDF / 第三方头文件**
+  （`include_next`、`qmi8658.h` 的 `M_PI` 重定义、IDF 的匿名结构体等），
+  `moto_nav_ui.cpp`、`motion_heading_sensor.cpp`、`phone_nav_bridge.cpp`、
+  `app_main.cpp`、`accel_gmeter.hpp` **零告警**。
+
+**编译中发现的仓库级问题（不是我引入的，值得上游知道）：**
+
+1. **`platforms/esp32/dependencies.lock` 不可复现。** 即使按提交的锁重新解析，
+   组件管理器仍会把 `espressif/esp_lcd_co5300` 从锁定的 **2.1.0 升到 2.2.0**，
+   并把本地 LVGL 组件路径写成**绝对路径**。此次编译因此用的是 co5300 **2.2.0**，
+   不是锁里的 2.1.0。我没有把改动后的锁提交，已还原为仓库版本。
+   上游 CI 目前只跑 native / backend / Swift 测试，**不编译固件**，所以这个漂移
+   不会被发现。
+2. **对象文件路径接近上限。** 把构建目录放在仓库默认位置时 CMake 报
+   "object file directory has 219 characters … maximum is 250"。构建改用
+   `-B D:\mgbuild`（短路径）后消失。仓库路径较深时用户会撞到这个问题。
 
 ### 一个可以立刻做的验证
 
