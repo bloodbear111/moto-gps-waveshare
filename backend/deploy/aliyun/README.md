@@ -1,5 +1,35 @@
 # 阿里云 ECS 部署（国内直连方案）
 
+## 0. 本次部署的实际参数（已核对）
+
+| 项 | 值 |
+| --- | --- |
+| 域名 | `www.bloodbear.xin`（网关地址 `https://www.bloodbear.xin/moto-gps/api`，末尾不加斜杠） |
+| ECS 公网 IP | `47.108.249.64`（`bloodbear.xin` 的 A 记录已经指向它；**`www` 还没有记录**） |
+| 实测状态 | 22 端口可连；**80 / 443 目前关闭** |
+| DNS 服务商 | 阿里云（`dns15/dns16.hichina.com`） |
+
+因此上线前必须先补齐这三件事：
+
+1. **加 DNS 记录**：阿里云云解析 → 记录类型 `A`，主机记录 `www`，记录值 `47.108.249.64`。
+2. **放行安全组**：入方向放行 **80、443**（22 保持现状）。**不要**放行 8787。
+3. **备案**：国内 ECS 上用域名跑 80/443 需要 **ICP 备案**；没有备案时运营商会拦截该域名的访问。
+   不想等备案就把实例换到**阿里云香港**区域（步骤完全一样，只是不用备案）。
+
+补齐后，服务器上依次执行（`configure.sh` 会交互式收高德 Key，隐藏输入，不进 history、不进仓库）：
+
+```sh
+sudo apt-get update && sudo apt-get install -y git
+git clone --depth 1 -b android/community-port-stage1 \
+  https://github.com/bloodbear111/moto-gps-waveshare.git
+cd moto-gps-waveshare
+sudo bash backend/deploy/aliyun/install.sh
+sudo bash backend/deploy/aliyun/configure.sh     # 粘贴高德【Web服务】Key
+sudo apt-get install -y certbot python3-certbot-nginx
+sudo certbot --nginx -d www.bloodbear.xin
+curl -sS https://www.bloodbear.xin/moto-gps/api/healthz
+```
+
 Cloudflare Workers 的 `*.workers.dev` 在国内会被 DNS 污染/阻断（本机实测：解析到
 `108.160.172.200` 与 `2a03:2880:f127:283:face:b00c:0:25de`，443 连不上，而同一时刻
 普通网站正常）。因此国内使用请走这套：**一台阿里云 ECS + nginx + systemd**。
