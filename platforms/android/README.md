@@ -112,6 +112,29 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 `local.properties`、`.env`、keystore、签名密码与 token 都不入库。
 
+## 发布签名与证书指纹（高德等需要绑定包名的 SDK 用）
+
+包名（`applicationId`）：`io.github.bloodbear111.motogps`
+
+| 用途 | 证书 SHA1 | 证书 SHA256 |
+| --- | --- | --- |
+| debug（本机调试密钥） | `6E:16:34:4A:CA:72:68:5D:68:BF:1B:E9:32:9A:0B:B9:C0:81:DB:F7` | `96:93:9E:5E:3D:73:CB:97:B5:5F:22:F1:D6:A8:B1:8B:BB:1D:37:14:36:D5:FE:85:5A:C9:26:1F:A9:EF:31:BF` |
+| release（维护者发布密钥） | `A3:7F:D3:B3:F8:F3:52:CD:D3:CD:82:A3:DA:94:43:D3:78:E3:73:97` | `16:8B:32:78:BC:0B:B3:AA:86:D1:B0:12:E6:1D:2E:45:7B:75:98:84:48:2E:99:47:BC:D3:D0:DE:46:DF:BE:A6` |
+
+- debug 指纹来自 Android 调试密钥库（`%USERPROFILE%\.android\debug.keystore`，别名 `androiddebugkey`）。它只能用于本机调试，**不能对外发布**。
+- release 密钥库位于本机受保护目录（`%USERPROFILE%\.moto-gps-release\`），别名 `moto-gps-release`，PKCS12，有效期 10000 天。**密钥库与口令文件必须离线备份**：丢了就无法用同一包名更新，按此 SHA1 注册的 SDK Key 也会失效。
+- 仓库不含任何签名材料：`keystore.properties`、`*.jks`、`*.keystore` 都在 `platforms/android/.gitignore` 里；`app/build.gradle.kts` 只在本地存在 `keystore.properties` 时才套用 release 签名，干净检出、CI 与 PR 构建拿不到也签不了发布包。
+
+```sh
+# 本机发布构建（需要 platforms/android/keystore.properties，该文件不入库）
+cd platforms/android
+./gradlew :app:assembleRelease
+
+# 校验成品证书指纹是否与上表一致
+$ANDROID_HOME/build-tools/36.0.0/apksigner verify --print-certs \
+    app/build/outputs/apk/release/app-release.apk
+```
+
 ## 权限说明
 
 | 权限 | 用途 | 说明 |
