@@ -80,6 +80,36 @@ npx wrangler secret put AMAP_WEB_SERVICE_KEY
 不会偷偷回退到演示路线。高德账号需具备 POI、驾车路线、行政区划权限和配额；实际请求失败时检查
 高德控制台的限制及返回错误码。若配置了出口 IP 白名单，必须另行验证 Workers 的出口是否符合要求。
 
+### 保持仓库默认值，用命令行覆盖部署变量（fork / CI 推荐）
+
+`wrangler.jsonc` 的默认值是 `MOTO_PROVIDER=disabled`，而 `checks/runtime.mjs`
+会断言这些默认值，并且它是用 `JSON.parse` 读这个文件的（**不支持
+`//` 注释，尽管后缀是 `.jsonc`）。因此直接把它改成生产值并提交会让
+CI 变红。实际部署时用 `--var` 在命令行上覆盖即可：
+
+```sh
+npx wrangler deploy \
+  --var MOTO_PROVIDER:amap \
+  --var MOTO_MAP_PMTILES_URL:auto \
+  --var "WEB_ORIGIN:" \
+  --var MOTO_BASE_PATH:/moto-gps/api
+```
+
+- `WEB_ORIGIN:` 留空表示只服务原生 App（浏览器跨域请求会被拒）。PowerShell 下请加引号，否则空值可能被丢掉。
+- `MOTO_BASE_PATH=/moto-gps/api` 时，接口在 `/moto-gps/api/v1/...`，**不要加末尾斜杠**；手机侧网关地址就填 `https://<你的 Worker 域名>/moto-gps/api`。
+- 密钥始终只走 `npx wrangler secret put AMAP_WEB_SERVICE_KEY`，不要进 `wrangler.jsonc`、仓库或 Issue。
+
+### 本仓库实测记录（2026-10-01）
+
+- 本机 Node 22.14 + wrangler 4.142：`npm test`（空白检出）**12/12 通过**。
+  注意：`wrangler dev` 会把 R2 本地状态留在 `.wrangler/`，带着这份状态重跑图瓦相关检查会失败；请在干净检出上跑。
+- 以上 `--var` 参数 + 真实高德 **Web 服务** Key 本地实测：
+  - `GET /moto-gps/api/healthz` → 200，`ready_for_live_navigation=true`、`provider=amap`、`surrounding_map=true`、`storage=r2`；
+  - `GET /moto-gps/api/v1/places?keywords=济南站` → 200，真实 POI（WGS84）；
+  - `POST /moto-gps/api/v1/route-options`（北京 WGS84）→ 200，真实路线 `total_distance_m=3183`，几何坐标系 `GCJ-02`。
+- 高德返回 `USERKEY_PLAT_NOMATCH`（10009）时，说明用的不是 **Web 服务** 平台的 Key（例如误用了 Android 平台 Key），服务端调用会全部被拒。
+
+
 ## 3. 部署及连接 App
 
 ```sh
