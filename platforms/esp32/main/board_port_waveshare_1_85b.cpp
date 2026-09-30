@@ -48,6 +48,7 @@ constexpr gpio_num_t kLcdData1 = GPIO_NUM_45;
 constexpr gpio_num_t kLcdData2 = GPIO_NUM_42;
 constexpr gpio_num_t kLcdData3 = GPIO_NUM_41;
 constexpr gpio_num_t kLcdCs = GPIO_NUM_21;
+constexpr gpio_num_t kLcdTe = GPIO_NUM_18;
 constexpr gpio_num_t kLcdReset = GPIO_NUM_3;
 constexpr gpio_num_t kLcdBacklight = GPIO_NUM_5;
 constexpr spi_host_device_t kLcdHost = SPI2_HOST;
@@ -129,9 +130,7 @@ esp_err_t initialize_panel() {
   bus_config.data3_io_num = kLcdData3;
   bus_config.max_transfer_sz =
       MOTO_DISPLAY_WIDTH * kDrawBufferHeight * sizeof(std::uint16_t);
-  // No SPICOMMON_BUSFLAG_QUAD here: the AMOLED-1.75C port leaves the flags at
-  // their defaults for the same 4-bit QSPI wiring, and requesting the quad IO
-  // capability changes which pins the SPI driver is willing to route.
+  bus_config.flags = SPICOMMON_BUSFLAG_MASTER | SPICOMMON_BUSFLAG_QUAD;
   ESP_RETURN_ON_ERROR(
       spi_bus_initialize(kLcdHost, &bus_config, SPI_DMA_CH_AUTO), kTag,
       "QSPI bus init failed");
@@ -141,16 +140,14 @@ esp_err_t initialize_panel() {
   io_config.dc_gpio_num = -1;
   io_config.spi_mode = 0;
   io_config.pclk_hz = kLcdPixelClockHz;
-  // One outstanding transaction, as on the 1.75C port: with a queue the old
-  // frame can still be in flight while LVGL starts writing the next one.
+  // Depth 1 makes esp_lcd complete each command synchronously instead of
+  // waiting on an SPI-ISR semaphore. With a queue, panel_st77916_init() blocked
+  // forever inside its very first MADCTL write, so the completion signal for
+  // this QSPI wiring never arrives; the polling path cannot hang that way.
   io_config.trans_queue_depth = 1;
   io_config.lcd_cmd_bits = 32;
   io_config.lcd_param_bits = 8;
   io_config.flags.quad_mode = 1;
-  // ESP32-S3 GPSPI can DMA an aligned PSRAM colour buffer directly. Without
-  // this, esp_lcd allocates and copies through an internal bounce buffer for
-  // every flush.
-  io_config.flags.psram_dma_direct = true;
   ESP_RETURN_ON_ERROR(
       esp_lcd_new_panel_io_spi(static_cast<esp_lcd_spi_bus_handle_t>(kLcdHost),
                                &io_config, &panel_io),
@@ -166,16 +163,49 @@ esp_err_t initialize_panel() {
   panel_config.vendor_config = &vendor_config;
   ESP_RETURN_ON_ERROR(esp_lcd_new_panel_st77916(panel_io, &panel_config, &panel),
                       kTag, "ST77916 panel create failed");
+  ESP_LOGI(kTag, "panel: resetting");
   ESP_RETURN_ON_ERROR(esp_lcd_panel_reset(panel), kTag, "panel reset failed");
+  ESP_LOGI(kTag, "panel: init");
   ESP_RETURN_ON_ERROR(esp_lcd_panel_init(panel), kTag, "panel init failed");
+  ESP_LOGI(kTag, "panel: invert");
   ESP_RETURN_ON_ERROR(esp_lcd_panel_invert_color(panel, true), kTag,
                       "panel invert failed");
+  ESP_LOGI(kTag, "panel: blank");
   ESP_RETURN_ON_ERROR(esp_lcd_panel_disp_on_off(panel, false), kTag,
                       "panel blank failed");
+  ESP_LOGI(kTag, "panel: ready");
   return ESP_OK;
 }
 
 esp_err_t initialize_touch() {
+  // Drive TP_RST explicitly before the touch driver takes the pin over. Without
+  // this the controller sat in an unknown state after power-up: the I2C scan
+  // sometimes saw 0x15 and sometimes nothing, and when it saw nothing the
+  // driver's first read never completed. CST816S also needs a settle delay
+  // after the reset edge before it answers on I2C.
+  gpio_config_t reset_config = {};
+  reset_config.pin_bit_mask = 1ULL << static_cast<int>(kTouchReset);
+  reset_config.mode = GPIO_MODE_OUTPUT;
+  reset_config.pull_up_en = GPIO_PULLUP_DISABLE;
+  reset_config.pull_down_en = GPIO_PULLDOWN_DISABLE;
+  reset_config.intr_type = GPIO_INTR_DISABLE;
+  ESP_RETURN_ON_ERROR(gpio_config(&reset_config), kTag,
+                      "touch reset GPIO setup failed");
+  ESP_RETURN_ON_ERROR(gpio_set_level(kTouchReset, 0), kTag,
+                      "touch reset assert failed");
+  vTaskDelay(pdMS_TO_TICKS(20));
+  ESP_RETURN_ON_ERROR(gpio_set_level(kTouchReset, 1), kTag,
+                      "touch reset release failed");
+  vTaskDelay(pdMS_TO_TICKS(120));
+
+  if (i2c_master_probe(i2c_bus, ESP_LCD_TOUCH_IO_I2C_CST816S_ADDRESS, 200) !=
+      ESP_OK) {
+    ESP_LOGW(kTag, "touch controller did not answer at 0x%02X after reset; "
+                   "continuing so the rest of the UI still comes up",
+             ESP_LCD_TOUCH_IO_I2C_CST816S_ADDRESS);
+  }
+
+  ESP_LOGI(kTag, "touch: creating IO");
   esp_lcd_panel_io_i2c_config_t io_config = {};
   io_config.dev_addr = ESP_LCD_TOUCH_IO_I2C_CST816S_ADDRESS;
   io_config.control_phase_bytes = 1;
@@ -218,8 +248,16 @@ extern "C" esp_err_t board_port_init(void) {
   ESP_RETURN_ON_ERROR(initialize_panel(), kTag, "panel init failed");
   ESP_RETURN_ON_ERROR(initialize_touch(), kTag, "touch init failed");
 
+  // esp_lv_adapter_init() is what calls lv_init(), so it must come before the
+  // pool below: LVGL's built-in allocator does not exist yet, and lv_mem_add_pool
+  // dereferences it immediately. (The 1.75C port gets away with the reverse
+  // order because the Waveshare BSP has already initialised LVGL by then.)
+  const esp_lv_adapter_config_t adapter_config = ESP_LV_ADAPTER_DEFAULT_CONFIG();
+  ESP_RETURN_ON_ERROR(esp_lv_adapter_init(&adapter_config), kTag,
+                      "LVGL adapter init failed");
+
   // LVGL allocates its built-in pool from internal RAM, which cannot hold the
-  // full instrument UI. Add a bounded PSRAM pool before the adapter initialises
+  // full instrument UI. Add a bounded PSRAM pool before registering the display
   // so the first full-screen draw has somewhere to work.
   lvgl_extra_pool_storage = heap_caps_malloc(
       kLvglExtraPoolBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -233,14 +271,18 @@ extern "C" esp_err_t board_port_init(void) {
   ESP_LOGI(kTag, "LVGL PSRAM pool: %u KiB",
            static_cast<unsigned>(kLvglExtraPoolBytes / 1024U));
 
-  const esp_lv_adapter_config_t adapter_config = ESP_LV_ADAPTER_DEFAULT_CONFIG();
-  ESP_RETURN_ON_ERROR(esp_lv_adapter_init(&adapter_config), kTag,
-                      "LVGL adapter init failed");
-
+  // Tear-synchronised profile rather than the plain double-buffered one.
+  //
+  // The plain profile finishes a frame through a semaphore that is only given
+  // from the SPI colour-transfer ISR. That ISR never fires with the synchronous
+  // (queue depth 1) transfers this wiring needs, so the LVGL worker blocked
+  // forever in display_bridge_v9_wait_double_ready. The panel exposes TE on
+  // GPIO18, and this profile synchronises on that instead of on the transfer
+  // completion interrupt.
   esp_lv_adapter_display_config_t display_config =
-      ESP_LV_ADAPTER_DISPLAY_SPI_WITH_PSRAM_DEFAULT_CONFIG(
+      ESP_LV_ADAPTER_DISPLAY_SPI_WITH_PSRAM_TE_DEFAULT_CONFIG(
           panel, panel_io, MOTO_DISPLAY_WIDTH, MOTO_DISPLAY_HEIGHT,
-          ESP_LV_ADAPTER_ROTATE_0);
+          ESP_LV_ADAPTER_ROTATE_0, kLcdTe, kLcdPixelClockHz, 4, 16);
   display_config.profile.buffer_height = kDrawBufferHeight;
   display_config.profile.use_psram = true;
   display_config.profile.require_double_buffer = true;
