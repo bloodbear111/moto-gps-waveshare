@@ -935,6 +935,12 @@ extern "C" esp_err_t board_port_init(void) {
 
 extern "C" lv_display_t* board_port_get_display(void) { return display; }
 
+extern "C" i2c_master_bus_handle_t board_port_sensor_i2c_bus(void) {
+  // On this board the BSP owns the sensor bus that the IMU, RTC and touch
+  // share.
+  return bsp_i2c_get_handle();
+}
+
 extern "C" esp_err_t board_port_reveal_display(void) {
   if (panel == nullptr || display == nullptr) {
     return ESP_ERR_INVALID_STATE;

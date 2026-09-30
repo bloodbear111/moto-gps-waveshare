@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "driver/i2c_master.h"
 #include "esp_err.h"
 #include "lvgl.h"
 #include "moto_nav_ui.h"
@@ -32,6 +33,18 @@ enum {
  * It must not contain route parsing, navigation, rerouting, or UI layout logic.
  */
 esp_err_t board_port_init(void);
+
+/**
+ * The I2C bus shared by the on-board sensors.
+ *
+ * The IMU, RTC, audio codec and (on some boards) the IO expander all live on
+ * one bus, but which handle that is depends on the board: the AMOLED-1.75C
+ * gets one from the Waveshare BSP, while the 1.85B port creates its own. The
+ * sensor code asks here instead of reaching into a board-specific BSP.
+ *
+ * Valid only after board_port_init() succeeded.
+ */
+i2c_master_bus_handle_t board_port_sensor_i2c_bus(void);
 
 /** Return the initialized LVGL display, or NULL before successful init. */
 lv_display_t *board_port_get_display(void);

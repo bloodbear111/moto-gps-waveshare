@@ -4,7 +4,7 @@
 #include <algorithm>
 #include <cmath>
 
-#include "bsp/esp-bsp.h"
+#include "board_port.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -127,8 +127,16 @@ void MotionHeadingSensor::task_entry(void* context) {
 
 void MotionHeadingSensor::run() {
   qmi8658_dev_t device{};
-  const esp_err_t init = qmi8658_init(
-      &device, bsp_i2c_get_handle(), QMI8658_ADDRESS_HIGH);
+  // Ask the board port which bus the sensors are on. The AMOLED-1.75C and the
+  // LCD-1.85B wire their IMU to different handles, and only the board port
+  // knows which one this build is.
+  i2c_master_bus_handle_t const sensor_bus = board_port_sensor_i2c_bus();
+  if (sensor_bus == nullptr) {
+    ESP_LOGW(kTag, "no sensor I2C bus; using phone course only");
+    return;
+  }
+  const esp_err_t init =
+      qmi8658_init(&device, sensor_bus, QMI8658_ADDRESS_HIGH);
   if (init != ESP_OK) {
     ESP_LOGW(kTag, "QMI8658 unavailable; using phone course only: %s",
              esp_err_to_name(init));
