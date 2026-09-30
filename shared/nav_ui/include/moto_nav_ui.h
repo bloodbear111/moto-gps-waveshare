@@ -7,8 +7,19 @@
 #define MOTO_UI_ROAD_POLYLINE_CAPACITY 24
 #define MOTO_UI_BUILDING_POINT_CAPACITY 128
 #define MOTO_UI_BUILDING_FOOTPRINT_CAPACITY 16
+/*
+ * The shared UI is laid out in a 360-unit design space and scaled to the
+ * canvas, so a board whose panel is exactly 360x360 renders it 1:1. 466x466
+ * stays the default because that is the AMOLED-1.75C assembly this project
+ * ships against; a board port may override both values at build time (see
+ * platforms/esp32/main/CMakeLists.txt) without touching any layout code.
+ */
+#ifndef MOTO_UI_CANVAS_WIDTH
 #define MOTO_UI_CANVAS_WIDTH 466
+#endif
+#ifndef MOTO_UI_CANVAS_HEIGHT
 #define MOTO_UI_CANVAS_HEIGHT 466
+#endif
 
 #ifdef __cplusplus
 extern "C" {

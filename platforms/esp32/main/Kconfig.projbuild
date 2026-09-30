@@ -1,0 +1,23 @@
+menu "MOTO GPS board"
+
+choice MOTO_BOARD_TARGET
+    prompt "Target board"
+    default MOTO_BOARD_AMOLED_1_75C
+    help
+        Selects which Waveshare board this firmware is built for.
+
+        The shared UI, BLE transport and navigation core are identical on both;
+        only the panel, the touch controller and the GPIO map differ. Flashing
+        an image built for one board onto the other leaves a black screen,
+        because the panel and touch initialisation fail before the UI is
+        created.
+
+config MOTO_BOARD_AMOLED_1_75C
+    bool "ESP32-S3-Touch-AMOLED-1.75C (466x466 CO5300 QSPI, CST9217)"
+
+config MOTO_BOARD_TOUCH_LCD_1_85B
+    bool "ESP32-S3-Touch-LCD-1.85B (360x360 ST77916 QSPI, CST816S, TCA9554)"
+
+endchoice
+
+endmenu

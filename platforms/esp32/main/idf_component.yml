@@ -13,3 +13,14 @@ dependencies:
     version: "9.5.0"
     public: true
     override_path: "../../../third_party/lvgl"
+  # Required by the ESP32-S3-Touch-LCD-1.85B board port. Both are Espressif
+  # components, so they also serve as the reference for the panel and touch
+  # hardware that board uses.
+  espressif/esp_lcd_st77916:
+    version: "^0.0.2"
+  espressif/esp_lcd_touch_cst816s:
+    version: "^1.0.2"
+  espressif/esp_lcd_touch:
+    version: "^1"
+  espressif/esp_lvgl_adapter:
+    version: "~0.6"
