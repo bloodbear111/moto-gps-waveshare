@@ -16,8 +16,14 @@ dependencies:
   # Required by the ESP32-S3-Touch-LCD-1.85B board port. Both are Espressif
   # components, so they also serve as the reference for the panel and touch
   # hardware that board uses.
+  #
+  # The ST77916 driver must match the version Waveshare's own 1.85B BSP asks
+  # for (^2.0.1). We sat on 0.0.2 at first and the panel came up striped: that
+  # driver ships the generic ST77916 register table, and the 1.85B is not a
+  # generic ST77916 - the board needs one of the two vendor tables the BSP
+  # selects between by reading panel register 0x04.
   espressif/esp_lcd_st77916:
-    version: "^0.0.2"
+    version: "^2.0.1"
   espressif/esp_lcd_touch_cst816s:
     version: "^1.0.2"
   espressif/esp_lcd_touch:

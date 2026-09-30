@@ -178,6 +178,29 @@ extern "C" void app_main(void) {
     ESP_LOGE(kTag, "could not reveal boot animation: %s",
              esp_err_to_name(reveal_result));
   }
+
+  // TEMPORARY bring-up diagnostic. The panel itself can fill the glass from one
+  // whole-frame transfer (see panel_bringup_test), but the first UI frame came
+  // out as horizontal bands. Push three solid colours through the real LVGL
+  // flush path while they are on screen, so a photo can tell whether the LVGL
+  // path corrupts the picture or whether it was the UI content all along.
+  const std::uint32_t solid_colours[3] = {0xFF0000, 0x00FF00, 0x0000FF};
+  for (int index = 0; index < 3; ++index) {
+    const std::uint32_t rgb = solid_colours[index];
+    lv_obj_t* const solid = lv_obj_create(lv_screen_active());
+    lv_obj_remove_style_all(solid);
+    lv_obj_set_size(solid, MOTO_UI_CANVAS_WIDTH, MOTO_UI_CANVAS_HEIGHT);
+    lv_obj_set_pos(solid, 0, 0);
+    lv_obj_set_style_bg_color(
+        solid, lv_color_make((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF),
+        0);
+    lv_obj_set_style_bg_opa(solid, LV_OPA_COVER, 0);
+    ESP_LOGI(kTag, "step: LVGL solid colour %d", index);
+    lv_refr_now(display);
+    vTaskDelay(pdMS_TO_TICKS(1500));
+    lv_obj_delete(solid);
+  }
+  lv_refr_now(display);
   board_port_unlock();
 
   // Give the display worker enough time to commit the monochrome power-on

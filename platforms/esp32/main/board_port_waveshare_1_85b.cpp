@@ -19,6 +19,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
@@ -36,6 +37,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "sdkconfig.h"
+#include "st77916_waveshare_1_85b_init.hpp"
 
 namespace {
 constexpr char kTag[] = "board_1_85b";
@@ -64,6 +66,15 @@ constexpr spi_host_device_t kLcdHost = SPI2_HOST;
 // 40-row chunk still lands in about 3 ms.
 constexpr int kLcdPixelClockHz = 20 * 1000 * 1000;
 
+// The panel revision register can only be read slowly. Waveshare's own BSP
+// builds the panel IO at 3 MHz to ask, then rebuilds it at the working clock.
+constexpr int kLcdIdReadClockHz = 3 * 1000 * 1000;
+// Read opcode 0x0B in the top byte of the 32-bit command word, register 0x04 in
+// the next byte - the same encoding the vendor BSP uses.
+constexpr int kLcdIdReadCommand = (0x0B << 24) | (0x04 << 8);
+constexpr std::uint8_t kLcdIdRevision1[4] = {0x00, 0x7F, 0x7F, 0x7F};
+constexpr std::uint8_t kLcdIdRevision2[4] = {0x00, 0x02, 0x7F, 0x7F};
+
 // --- Touch: CST816S, address 0x15, on the shared I2C bus -------------------
 constexpr gpio_num_t kTouchReset = GPIO_NUM_1;
 constexpr gpio_num_t kTouchInt = GPIO_NUM_4;
@@ -72,7 +83,16 @@ constexpr gpio_num_t kTouchInt = GPIO_NUM_4;
 constexpr gpio_num_t kI2cScl = GPIO_NUM_10;
 constexpr gpio_num_t kI2cSda = GPIO_NUM_11;
 
-constexpr int kDrawBufferHeight = 40;
+// One whole frame per LVGL draw buffer, not a 40-row slice.
+//
+// On this panel a single full-frame esp_lcd_panel_draw_bitmap() paints
+// correctly, but splitting the same picture into many small transfers does
+// not: the boot self-test below writes solid red as one transfer and solid
+// green as nine 40-row transfers, and the green pass is the one that comes
+// out banded. LVGL flushes one transfer per draw buffer, so the draw buffer
+// has to span the whole panel for the picture to survive. Two 360x360 RGB565
+// buffers cost 506 KiB of PSRAM, which this board has to spare.
+constexpr int kDrawBufferHeight = MOTO_DISPLAY_HEIGHT;
 // The complete instrument UI holds several pages of text and lines at once.
 // LVGL's built-in pool starts in internal RAM, which is far too small for that,
 // so reserve a bounded PSRAM pool the same way the 1.75C port does. Without it
@@ -83,6 +103,15 @@ static_assert(kLvglExtraPoolBytes <= LV_MEM_POOL_EXPAND_SIZE,
               "LVGL PSRAM pool must fit the configured pool expansion");
 static_assert(LV_USE_STDLIB_MALLOC == LV_STDLIB_BUILTIN,
               "Review the LVGL pool setup after changing allocators");
+
+// The panel is fed big-endian RGB565. The LVGL adapter byte-swaps every flush
+// it hands to a PANEL_IF_OTHER display, and Waveshare's own BSP declares
+// BSP_LCD_BIGENDIAN 1, so anything drawn straight to the panel outside LVGL has
+// to swap too - otherwise a diagnostic chart would disagree with the real UI
+// and be worse than no chart at all.
+constexpr std::uint16_t to_panel_rgb565(std::uint16_t colour) {
+  return static_cast<std::uint16_t>((colour >> 8) | (colour << 8));
+}
 
 i2c_master_bus_handle_t i2c_bus = nullptr;
 void* lvgl_extra_pool_storage = nullptr;
@@ -131,51 +160,88 @@ esp_err_t initialize_backlight() {
   return gpio_set_level(kLcdBacklight, 0);
 }
 
-// Bring-up check that bypasses LVGL completely: allocate a full-frame buffer in
-// PSRAM, push three solid colours straight into the panel with the backlight
-// on, then blank again. If the panel shows red/green/blue then the panel and
-// backlight path is sound and anything still wrong is in the LVGL flush; if it
-// stays dark the fault is here rather than in the UI.
-esp_err_t panel_bringup_test() {
+// Bring-up chart: eight 45-row colour bars in one whole-frame transfer, held
+// for a few seconds before LVGL takes the panel over. It is the quickest way to
+// tell a correct panel path from a broken one by eye - the bar boundaries land
+// on exactly rows 45/90/135/180/225/270/315, and the colours say whether the
+// byte order is right - without dragging the whole UI into the question.
+//
+//   rows   0.. 44  red      | rows 180..224  black
+//   rows  45.. 89  green    | rows 225..269  yellow
+//   rows  90..134  blue     | rows 270..314  magenta
+//   rows 135..179  white    | rows 315..359  cyan
+//
+// (the white bar also carries a 2px black vertical line down its middle, and a
+// 24x24 white square marks the lower-right quadrant, since a round screen has
+// no visible corners).
+void fill_pattern_frame(std::uint16_t* frame) {
+  const std::size_t width = MOTO_DISPLAY_WIDTH;
+  const std::size_t height = MOTO_DISPLAY_HEIGHT;
+  const std::uint16_t bars[8] = {
+      to_panel_rgb565(0xF800),  // red
+      to_panel_rgb565(0x07E0),  // green
+      to_panel_rgb565(0x001F),  // blue
+      to_panel_rgb565(0xFFFF),  // white
+      to_panel_rgb565(0x0000),  // black
+      to_panel_rgb565(0xFFE0),  // yellow
+      to_panel_rgb565(0xF81F),  // magenta
+      to_panel_rgb565(0x07FF),  // cyan
+  };
+  const std::size_t bar_rows = height / 8;
+  for (std::size_t row = 0; row < height; ++row) {
+    const std::uint16_t colour = bars[row / bar_rows < 8 ? row / bar_rows : 7];
+    for (std::size_t column = 0; column < width; ++column) {
+      frame[row * width + column] = colour;
+    }
+  }
+
+  // White marker at the bottom-right of the visible circle, so a photograph
+  // shows which way round the picture landed. The screen is round, so the true
+  // corners are not on the glass: this sits at the centre of the lower-right
+  // quadrant instead.
+  constexpr std::size_t kMarker = 24;
+  const std::size_t marker_first_x = width - (width / 4) - kMarker / 2;
+  const std::size_t marker_first_y = height - (height / 4) - kMarker / 2;
+  for (std::size_t row = 0; row < kMarker; ++row) {
+    for (std::size_t column = 0; column < kMarker; ++column) {
+      frame[(marker_first_y + row) * width + marker_first_x + column] =
+          to_panel_rgb565(0xFFFF);
+    }
+  }
+
+  // A white vertical line down the middle of the white bar, so a horizontal
+  // shift shows up as the line landing off centre.
+  const std::size_t black_bar_first = bar_rows * 3;
+  for (std::size_t row = black_bar_first; row < black_bar_first + bar_rows;
+       ++row) {
+    for (std::size_t column = width / 2; column < width / 2 + 2; ++column) {
+      frame[row * width + column] = to_panel_rgb565(0x0000);
+    }
+  }
+}
+
+// Paints the bar chart once and holds it for a moment. Runs before LVGL takes
+// the panel over, so a photograph describes the panel path on its own.
+void panel_pattern_show() {
   const std::size_t pixel_count =
       static_cast<std::size_t>(MOTO_DISPLAY_WIDTH) * MOTO_DISPLAY_HEIGHT;
   auto* frame = static_cast<std::uint16_t*>(
       heap_caps_malloc(pixel_count * sizeof(std::uint16_t),
                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   if (frame == nullptr) {
-    ESP_LOGW(kTag, "no PSRAM for the panel bring-up test");
-    return ESP_ERR_NO_MEM;
+    ESP_LOGW(kTag, "no PSRAM for the panel pattern; skipping it");
+    return;
   }
 
-  ESP_RETURN_ON_ERROR(gpio_set_level(kLcdBacklight, 1), kTag,
-                      "backlight on failed");
-  ESP_RETURN_ON_ERROR(esp_lcd_panel_disp_on_off(panel, true), kTag,
-                      "panel enable failed");
-
-  const std::uint16_t colours[3] = {
-      0xF800,  // red
-      0x07E0,  // green
-      0x001F,  // blue
-  };
-  for (int index = 0; index < 3; ++index) {
-    for (std::size_t pixel = 0; pixel < pixel_count; ++pixel) {
-      frame[pixel] = colours[index];
-    }
-    ESP_LOGI(kTag, "panel test: colour %d", index);
-    ESP_RETURN_ON_ERROR(
-        esp_lcd_panel_draw_bitmap(panel, 0, 0, MOTO_DISPLAY_WIDTH,
-                                  MOTO_DISPLAY_HEIGHT, frame),
-        kTag, "panel test draw failed");
-    vTaskDelay(pdMS_TO_TICKS(700));
-  }
-
+  fill_pattern_frame(frame);
+  gpio_set_level(kLcdBacklight, 1);
+  esp_lcd_panel_disp_on_off(panel, true);
+  const esp_err_t result =
+      esp_lcd_panel_draw_bitmap(panel, 0, 0, MOTO_DISPLAY_WIDTH,
+                                MOTO_DISPLAY_HEIGHT, frame);
+  ESP_LOGI(kTag, "panel pattern: chart pushed (%s)", esp_err_to_name(result));
+  vTaskDelay(pdMS_TO_TICKS(3000));
   heap_caps_free(frame);
-  ESP_RETURN_ON_ERROR(esp_lcd_panel_disp_on_off(panel, false), kTag,
-                      "panel blank failed");
-  ESP_RETURN_ON_ERROR(gpio_set_level(kLcdBacklight, 0), kTag,
-                      "backlight off failed");
-  ESP_LOGI(kTag, "panel test: done");
-  return ESP_OK;
 }
 
 esp_err_t initialize_panel() {
@@ -195,6 +261,67 @@ esp_err_t initialize_panel() {
   ESP_RETURN_ON_ERROR(
       spi_bus_initialize(kLcdHost, &bus_config, SPI_DMA_CH_AUTO), kTag,
       "QSPI bus init failed");
+
+  // The 1.85B is built with two panel revisions that need different register
+  // tables, and the table that ships with espressif/esp_lcd_st77916 is a third,
+  // different one: the first five writes are the panel's QSPI/serial interface
+  // setup, and with the generic values the panel accepts the picture and then
+  // displays it as diagonal bands. Waveshare's BSP asks register 0x04 which
+  // revision is fitted and loads the matching table, so do the same. The table
+  // for each revision lives in st77916_waveshare_1_85b_init.hpp, generated
+  // straight from the vendor source.
+  esp_lcd_panel_io_spi_config_t probe_config = {};
+  probe_config.cs_gpio_num = kLcdCs;
+  probe_config.dc_gpio_num = -1;
+  probe_config.spi_mode = 0;
+  probe_config.pclk_hz = kLcdIdReadClockHz;
+  probe_config.trans_queue_depth = 1;
+  probe_config.lcd_cmd_bits = 32;
+  probe_config.lcd_param_bits = 8;
+  probe_config.flags.quad_mode = 1;
+
+  esp_lcd_panel_io_handle_t probe_io = nullptr;
+  ESP_RETURN_ON_ERROR(
+      esp_lcd_new_panel_io_spi(static_cast<esp_lcd_spi_bus_handle_t>(kLcdHost),
+                               &probe_config, &probe_io),
+      kTag, "panel probe IO create failed");
+
+  std::uint8_t revision[4] = {0, 0, 0, 0};
+  const esp_err_t revision_read = esp_lcd_panel_io_rx_param(
+      probe_io, kLcdIdReadCommand, revision, sizeof(revision));
+
+  // probe_io is deliberately left alive: the vendor BSP does the same, and
+  // tearing down a device on a QSPI bus that has already been probed is not
+  // behaviour this port has any evidence for.
+  // Default to revision 2. The unit this port was developed against answers the
+  // read with four zero bytes, and revision 2 is the table that draws the
+  // bring-up chart correctly on it (revision 1 paints the chart as a black
+  // screen). A board whose register does read properly still gets the vendor's
+  // own selection, so this fallback only decides the unreadable case.
+  const st77916_lcd_init_cmd_t* init_table = kInitVersion2;
+  std::uint16_t init_table_size =
+      sizeof(kInitVersion2) / sizeof(kInitVersion2[0]);
+  const char* revision_name = "unreadable, assuming revision 2";
+  if (revision_read == ESP_OK &&
+      memcmp(revision, kLcdIdRevision1, sizeof(revision)) == 0) {
+    init_table = kInitVersion1;
+    init_table_size = sizeof(kInitVersion1) / sizeof(kInitVersion1[0]);
+    revision_name = "revision 1";
+  } else if (revision_read == ESP_OK &&
+             memcmp(revision, kLcdIdRevision2, sizeof(revision)) == 0) {
+    revision_name = "revision 2";
+  } else if (revision_read == ESP_OK) {
+    ESP_LOGW(kTag,
+             "panel revision %02X %02X %02X %02X matches neither known "
+             "revision; assuming revision 2",
+             revision[0], revision[1], revision[2], revision[3]);
+  } else {
+    ESP_LOGW(kTag, "panel revision read failed (%s); assuming revision 2",
+             esp_err_to_name(revision_read));
+  }
+  ESP_LOGI(kTag, "panel revision %02X %02X %02X %02X -> %s, %u register writes",
+           revision[0], revision[1], revision[2], revision[3], revision_name,
+           static_cast<unsigned>(init_table_size));
 
   esp_lcd_panel_io_spi_config_t io_config = {};
   io_config.cs_gpio_num = kLcdCs;
@@ -225,6 +352,8 @@ esp_err_t initialize_panel() {
 
   st77916_vendor_config_t vendor_config = {};
   vendor_config.flags.use_qspi_interface = 1;
+  vendor_config.init_cmds = init_table;
+  vendor_config.init_cmds_size = init_table_size;
 
   esp_lcd_panel_dev_config_t panel_config = {};
   panel_config.reset_gpio_num = kLcdReset;
@@ -317,7 +446,8 @@ extern "C" esp_err_t board_port_init(void) {
   ESP_RETURN_ON_ERROR(initialize_backlight(), kTag, "backlight init failed");
   ESP_RETURN_ON_ERROR(initialize_panel(), kTag, "panel init failed");
   ESP_RETURN_ON_ERROR(initialize_touch(), kTag, "touch init failed");
-  ESP_RETURN_ON_ERROR(panel_bringup_test(), kTag, "panel bring-up test failed");
+
+  panel_pattern_show();
 
   // esp_lv_adapter_init() is what calls lv_init(), so it must come before the
   // pool below: LVGL's built-in allocator does not exist yet, and lv_mem_add_pool
