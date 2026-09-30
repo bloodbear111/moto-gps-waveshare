@@ -1826,6 +1826,45 @@ void create_compass_page() {
     lv_obj_align(ui.compass_speed, LV_ALIGN_CENTER, 0, px(57));
 }
 
+// LVGL's own printf has no float support, so "%.2f" reached the glass as a bare
+// letter "f": the G page showed "Xf Yf Zf" and the big resultant read as "f".
+// Format from integers instead. That avoids depending on a build option, keeps
+// the same digits on every target, and is cheap enough for a 40 Hz refresh.
+// Writes "-99.99" at most, so callers only need 8 bytes. The digits are built
+// by hand rather than with printf: printf's width analysis cannot prove the
+// bound here and the firmware builds with -Werror=format-truncation.
+constexpr std::size_t kGFormatBytes = 8;
+
+void format_g(char *out, std::size_t out_size, float value, bool always_sign) {
+    if(out_size < kGFormatBytes) {
+        if(out_size > 0) out[0] = '\0';
+        return;
+    }
+    if(!std::isfinite(value)) {
+        std::memcpy(out, "--", 3);
+        return;
+    }
+    int centi = static_cast<int>(std::lround(value * 100.0F));
+    if(centi > 9999) centi = 9999;
+    if(centi < -9999) centi = -9999;
+
+    char *p = out;
+    if(centi < 0) {
+        *p++ = '-';
+        centi = -centi;
+    } else if(always_sign) {
+        *p++ = '+';
+    }
+    const int whole = centi / 100;
+    const int fraction = centi % 100;
+    *p++ = static_cast<char>('0' + whole / 10);
+    *p++ = static_cast<char>('0' + whole % 10);
+    *p++ = '.';
+    *p++ = static_cast<char>('0' + fraction / 10);
+    *p++ = static_cast<char>('0' + fraction % 10);
+    *p = '\0';
+}
+
 void update_gmeter_view() {
     if(ui.gmeter_ball == nullptr) return;
 
@@ -1873,20 +1912,29 @@ void update_gmeter_view() {
     lv_obj_set_pos(ui.gmeter_ball, centre_x + offset_x - ball_size / 2,
                    centre_y + offset_y - ball_size / 2);
 
-    lv_label_set_text_fmt(ui.gmeter_value, "%.2f",
-                          static_cast<double>(ui.gmeter.total_g));
-    lv_label_set_text_fmt(ui.gmeter_axes, "X %+.2f   Y %+.2f   Z %+.2f",
-                          static_cast<double>(ui.gmeter.axis_x_g),
-                          static_cast<double>(ui.gmeter.axis_y_g),
-                          static_cast<double>(ui.gmeter.axis_z_g));
+    char value[kGFormatBytes];
+    char axis_x[kGFormatBytes];
+    char axis_y[kGFormatBytes];
+    char axis_z[kGFormatBytes];
+    char axes[40];
+    format_g(value, sizeof(value), ui.gmeter.total_g, false);
+    format_g(axis_x, sizeof(axis_x), ui.gmeter.axis_x_g, true);
+    format_g(axis_y, sizeof(axis_y), ui.gmeter.axis_y_g, true);
+    format_g(axis_z, sizeof(axis_z), ui.gmeter.axis_z_g, true);
+    std::snprintf(axes, sizeof(axes), "X %s   Y %s   Z %s", axis_x, axis_y,
+                  axis_z);
+    lv_label_set_text(ui.gmeter_value, value);
+    lv_label_set_text(ui.gmeter_axes, axes);
 }
 
 void create_gmeter_page() {
     lv_obj_t *page = ui.pages[MOTO_UI_PAGE_ACCEL];
 
-    lv_obj_t *title = make_label(page, &lv_font_montserrat_16, kQuiet,
-                                 "G-FORCE");
-    lv_obj_set_style_text_letter_space(title, px(4), 0);
+    // Chinese title, so it uses the project's own font - Montserrat carries no
+    // CJK glyphs at all. Letter spacing is tighter than the Latin titles
+    // because full-width glyphs already bring their own side bearings.
+    lv_obj_t *title = make_label(page, &moto_font_nav_16, kQuiet, "加速度仪");
+    lv_obj_set_style_text_letter_space(title, px(2), 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, px(26));
 
     const int dial_x = px(180);

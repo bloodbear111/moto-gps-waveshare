@@ -362,9 +362,9 @@ lint: No issues found.
 
 ### 界面（美化部分）
 
-360×360 设计空间内：顶部 `G-FORCE` 标题；中央三层同心圆（外圈较亮，内圈渐隐）
+360×360 设计空间内：顶部「加速度仪」标题；中央三层同心圆（外圈较亮，内圈渐隐）
 加十字准线、中心轴点；小球带一层柔光晕；底部三行读数——
-大号**合成 G 值**（`1.02`）、`G RESULTANT` 说明、以及 `X / Y / Z` 三轴 G 值。
+大号**合成 G 值**（`1.02`，用整数运算格式化）、`G RESULTANT` 说明、以及 `X / Y / Z` 三轴 G 值。
 
 数值不变，**颜色随受力程度变化**：<0.35 g 冰蓝 → <0.75 g 白 → <1.2 g 琥珀
 → 更高红。阈值只影响配色，不影响读数。没有传感器时显示 `NO SENSOR` 而不是
@@ -401,7 +401,7 @@ Project build complete.
 
 * 解析到的组件包含 `waveshare/esp32_s3_touch_amoled_1_75c`、`waveshare/qmi8658`、
   `espressif/esp_lvgl_adapter`、`lvgl/lvgl 9.5.0`（用仓库子模块路径）。
-* **`G-FORCE` / `NO SENSOR` / `G  RESULTANT` 与轴值格式串都能在 `moto_gps_esp32.elf`
+* **`加速度仪` / `NO SENSOR` / `G  RESULTANT` 与轴值格式串都能在 `moto_gps_esp32.elf`
   里找到**，说明新页面确实被编进了固件，而不是被条件编译跳过。
 * 强制重编我改动的四个文件后，**告警全部来自 ESP-IDF / 第三方头文件**
   （`include_next`、`qmi8658.h` 的 `M_PI` 重定义、IDF 的匿名结构体等），

@@ -422,10 +422,15 @@ esp_err_t initialize_touch() {
   touch_config.y_max = MOTO_DISPLAY_HEIGHT;
   touch_config.rst_gpio_num = kTouchReset;
   touch_config.int_gpio_num = kTouchInt;
-  // Matches the orientation the panel is mounted in.
+  // All three flags are zero, which is what Waveshare's own BSP uses for this
+  // board (bsp_display_start() defaults). The 1.75C port mirrors both axes and
+  // the values were copied from there, which flipped the touch panel against
+  // the display: swiping one way on the glass moved the selection the other
+  // way. The panel itself is not mirrored - MADCTL is written as plain RGB
+  // with no mirror bits - so the touch controller must not be either.
   touch_config.flags.swap_xy = 0;
-  touch_config.flags.mirror_x = 1;
-  touch_config.flags.mirror_y = 1;
+  touch_config.flags.mirror_x = 0;
+  touch_config.flags.mirror_y = 0;
   ESP_RETURN_ON_ERROR(
       esp_lcd_touch_new_i2c_cst816s(touch_io, &touch_config, &touch), kTag,
       "CST816S init failed");
