@@ -21,6 +21,12 @@ class BleNavTransport {
   using MessageCallback = moto::ble::AckStatus (*)(
       const moto::ble::ReassembledMessage& message, void* context);
   using LinkCallback = void (*)(bool active, void* context);
+  // Radio-level state, separate from LinkCallback. LinkCallback tracks whether
+  // the phone *application* is currently feeding us frames; the watchdog clears
+  // it a few seconds after the last valid frame while the BLE connection is
+  // still up. The display needs both facts: "connected, waiting for the app" is
+  // not the same as "not connected".
+  using RadioCallback = void (*)(bool connected, void* context);
 
   BleNavTransport();
   BleNavTransport(const BleNavTransport&) = delete;
@@ -29,6 +35,8 @@ class BleNavTransport {
   void set_callbacks(MessageCallback message_callback,
                      LinkCallback link_callback,
                      void* context) noexcept;
+  void set_radio_callback(RadioCallback radio_callback,
+                          void* context) noexcept;
   esp_err_t start();
   bool send_message(const moto::ble::Message& message,
                     std::uint8_t frame_flags = 0);
@@ -90,6 +98,7 @@ class BleNavTransport {
                 moto::ble::AckStatus status,
                 std::uint16_t command_id = 0);
   void accept_ack(const moto::ble::Ack& ack);
+  void notify_radio(bool connected);
   void service_pending_ack(std::uint64_t now_ms);
   bool notify_frames(const std::vector<moto::ble::Bytes>& frames);
   std::size_t negotiated_frame_size() const noexcept;
@@ -98,6 +107,8 @@ class BleNavTransport {
 
   MessageCallback message_callback_ = nullptr;
   LinkCallback link_callback_ = nullptr;
+  RadioCallback radio_callback_ = nullptr;
+  void* radio_context_ = nullptr;
   void* callback_context_ = nullptr;
   QueueHandle_t rx_queue_ = nullptr;
   SemaphoreHandle_t tx_mutex_ = nullptr;

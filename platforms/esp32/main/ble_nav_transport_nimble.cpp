@@ -59,6 +59,18 @@ void BleNavTransport::set_callbacks(MessageCallback message_callback,
   callback_context_ = context;
 }
 
+void BleNavTransport::set_radio_callback(RadioCallback radio_callback,
+                                         void* context) noexcept {
+  radio_callback_ = radio_callback;
+  radio_context_ = context;
+}
+
+void BleNavTransport::notify_radio(bool connected) {
+  if (radio_callback_ != nullptr) {
+    radio_callback_(connected, radio_context_);
+  }
+}
+
 esp_err_t BleNavTransport::start() {
   if (started_) {
     return ESP_OK;
@@ -239,6 +251,7 @@ int BleNavTransport::gap_event(ble_gap_event* event, void* argument) {
                  static_cast<unsigned>(
                      heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL)),
                  static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
+        self->notify_radio(true);
       } else {
         ESP_LOGW(kTag, "connection failed: status=%d",
                  event->connect.status);
@@ -261,6 +274,7 @@ int BleNavTransport::gap_event(ble_gap_event* event, void* argument) {
       self->peer_max_frame_size_.store(20);
       self->session_id_.store(0);
       self->connection_epoch_.fetch_add(1);
+      self->notify_radio(false);
       self->advertise();
       return 0;
 

@@ -330,8 +330,14 @@ void PhoneNavBridge::on_link_state(bool active) {
       return;
     }
     link_active_ = active;
-    ui_phone_connection_ = active ? MOTO_UI_PHONE_CONNECTING
-                                  : MOTO_UI_PHONE_OFFLINE;
+    // "No frames for a while" is not "not connected". The transport keeps the
+    // BLE connection when its watchdog expires and only stops feeding frames,
+    // so the indicator goes back to Connecting rather than claiming the phone
+    // is gone - which is what made the connecting screen vanish after a few
+    // seconds with the phone still connected.
+    ui_phone_connection_ = (active || radio_active_)
+                               ? MOTO_UI_PHONE_CONNECTING
+                               : MOTO_UI_PHONE_OFFLINE;
     auto& phone_snapshot = phone_snapshot_locked();
     if (active) {
       phone_snapshot.network = moto::nav::NetworkState::Connecting;
@@ -359,6 +365,22 @@ void PhoneNavBridge::on_link_state(bool active) {
   const std::uint32_t flags = static_cast<std::uint32_t>(RenderNavigation) |
       (active ? 0U : static_cast<std::uint32_t>(RenderMedia));
   request_render(flags);
+}
+
+void PhoneNavBridge::on_radio_state(bool active) {
+  bool changed = false;
+  {
+    const std::lock_guard<std::mutex> lock(state_mutex_);
+    changed = radio_active_ != active;
+    radio_active_ = active;
+    if (changed) {
+      ui_phone_connection_ = active ? MOTO_UI_PHONE_CONNECTING
+                                    : MOTO_UI_PHONE_OFFLINE;
+    }
+  }
+  if (changed) {
+    request_render(static_cast<std::uint32_t>(RenderNavigation));
+  }
 }
 
 void PhoneNavBridge::on_accel_sample(const AccelSample& sample) {

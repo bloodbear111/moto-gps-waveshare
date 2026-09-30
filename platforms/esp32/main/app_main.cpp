@@ -27,6 +27,10 @@ void update_phone_link(bool active, void* context) {
   static_cast<PhoneNavBridge*>(context)->on_link_state(active);
 }
 
+void update_ble_radio(bool connected, void* context) {
+  static_cast<PhoneNavBridge*>(context)->on_radio_state(connected);
+}
+
 void update_motion_heading(float heading_rate_dps, std::uint64_t sample_ms,
                            void* context) {
   static_cast<PhoneNavBridge*>(context)->on_imu_sample(heading_rate_dps,
@@ -223,6 +227,7 @@ extern "C" void app_main(void) {
   phone_bridge.set_sender(BleNavTransport::send_from_bridge, &transport);
   transport.set_callbacks(receive_phone_message, update_phone_link,
                           &phone_bridge);
+  transport.set_radio_callback(update_ble_radio, &phone_bridge);
   const esp_err_t ble_result = transport.start();
   ESP_LOGI(kTag, "step: BLE transport start returned %s",
            esp_err_to_name(ble_result));

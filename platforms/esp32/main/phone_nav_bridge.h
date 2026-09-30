@@ -35,6 +35,10 @@ class PhoneNavBridge {
   void render_pending_for_test();
 #endif
   void on_link_state(bool active);
+  // Radio-level BLE state, called when the phone connects or drops. Distinct
+  // from on_link_state, which follows the phone application's frames and goes
+  // quiet on a watchdog expiry while the connection is still up.
+  void on_radio_state(bool active);
   void on_imu_sample(float heading_rate_dps, std::uint64_t sample_ms);
   // Called from the QMI8658 task. Like on_imu_sample it only retains state and
   // signals the render task; it never touches LVGL directly.
@@ -126,6 +130,8 @@ class PhoneNavBridge {
   std::atomic<TaskHandle_t> render_task_handle_{nullptr};
 #endif
   MotionHeadingFusion heading_fusion_;
+  // Radio link state. Guarded by state_mutex_.
+  bool radio_active_ = false;
   std::uint64_t last_motion_present_ms_ = 0;
   moto::gmeter::Meter gmeter_;
   moto_gmeter_state_t gmeter_state_{};
