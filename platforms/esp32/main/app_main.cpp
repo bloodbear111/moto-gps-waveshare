@@ -204,7 +204,12 @@ extern "C" void app_main(void) {
   static const moto::nav::NavSnapshot initial_snapshot{};
   presenter.update(initial_snapshot);
   presenter.apply_to_lvgl();
-  moto_nav_ui_set_music_page_enabled(0);
+  // The music page is always part of the page rotation. It used to be shown
+  // only once the phone announced media capabilities, which on Android - where
+  // media control does not exist yet - meant the page never appeared at all and
+  // looked like a missing feature. The page now renders its own idle state and
+  // fills in when a phone sends media state.
+  moto_nav_ui_set_music_page_enabled(1);
   phone_bridge.install_ui_callbacks();
   board_port_unlock();
   ESP_LOGI(kTag, "step: presenter installed");

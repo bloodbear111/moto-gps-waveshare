@@ -3,3 +3,7 @@ nvs,      data, nvs,     0x9000,  0x6000,
 phy_init, data, phy,     0xf000,  0x1000,
 factory,  app,  factory, ,        8M,
 storage,  data, spiffs,  ,        7M,
+# Panic and watchdog dumps are written here so a crash on the bench can be
+# decoded later with `idf.py coredump-info` instead of needing someone to be
+# watching the serial port at the moment it happens.
+coredump, data, coredump, ,       64K,

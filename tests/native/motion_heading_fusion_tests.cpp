@@ -136,6 +136,23 @@ void test_stationary_freeze_holds_heading_until_riding_resumes() {
 
 }  // namespace
 
+// Without a phone course the board has no heading reference at all: no
+// magnetometer, and a gyro's zero is arbitrary. Integrating anyway made the
+// compass walk around the dial while the bike sat still, which reads as a
+// broken compass. It must stay put until the phone anchors it.
+void test_gyro_does_not_invent_a_heading_without_a_phone_course() {
+  MotionHeadingFusion fusion;
+  CHECK(!fusion.integrate(45.0F, 8));
+  CHECK(!fusion.integrate(45.0F, 16));
+  CHECK(!fusion.initialized());
+  CHECK(std::abs(fusion.heading_deg()) < 0.01F);
+
+  // Once the phone supplies a course the gyro is useful again.
+  fusion.anchor(90.0F, 8.0F, true);
+  feed_rate(fusion, 45.0F, 16, 256);
+  CHECK(fusion.heading_deg() > 90.0F);
+}
+
 int main() {
   test_fast_gyro_turn_and_wrap();
   test_stationary_phone_course_does_not_drag_handlebar_heading();
@@ -146,6 +163,7 @@ int main() {
   test_large_sensor_gap_is_not_integrated();
   test_stale_timestamp_does_not_rewind_integration_clock();
   test_stationary_freeze_holds_heading_until_riding_resumes();
+  test_gyro_does_not_invent_a_heading_without_a_phone_course();
 
   if (failures != 0) {
     std::cerr << failures << " motion heading checks failed\n";

@@ -5,8 +5,10 @@
 
 #include "ble_event_filter.hpp"
 #include "connection_epoch_gate.hpp"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "freertos/task.h"
 #include "host/ble_gatt.h"
 #include "host/ble_hs.h"
 #include "host/ble_uuid.h"
@@ -221,11 +223,22 @@ int BleNavTransport::gap_event(ble_gap_event* event, void* argument) {
         self->peer_max_frame_size_.store(20);
         self->session_id_.store(0);
         self->connection_epoch_.fetch_add(1);
+        // Memory and stack are logged on every connection because this board
+        // has little internal RAM to spare and the NimBLE host task runs on a
+        // small stack. A freeze right at connect is either an allocation
+        // failure or a stack overflow, and neither is visible without these
+        // numbers.
         ESP_LOGI(kTag,
-                 "iPhone connected; handle=%u encrypted=%u subscribed=%u",
+                 "phone connected; handle=%u encrypted=%u subscribed=%u "
+                 "internal=%u min_internal=%u stack_free=%u",
                  event->connect.conn_handle,
                  self->encrypted_.load() ? 1U : 0U,
-                 self->subscribed_.load() ? 1U : 0U);
+                 self->subscribed_.load() ? 1U : 0U,
+                 static_cast<unsigned>(
+                     heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
+                 static_cast<unsigned>(
+                     heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL)),
+                 static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
       } else {
         ESP_LOGW(kTag, "connection failed: status=%d",
                  event->connect.status);
@@ -234,8 +247,13 @@ int BleNavTransport::gap_event(ble_gap_event* event, void* argument) {
       return 0;
 
     case BLE_GAP_EVENT_DISCONNECT:
-      ESP_LOGI(kTag, "phone disconnected: reason=%d",
-               event->disconnect.reason);
+      ESP_LOGI(kTag,
+               "phone disconnected: reason=%d internal=%u min_internal=%u",
+               event->disconnect.reason,
+               static_cast<unsigned>(
+                   heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
+               static_cast<unsigned>(
+                   heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL)));
       self->connected_.store(false);
       self->encrypted_.store(false);
       self->subscribed_.store(false);

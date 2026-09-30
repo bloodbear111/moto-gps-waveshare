@@ -348,7 +348,9 @@ void PhoneNavBridge::on_link_state(bool active) {
       clear_map_context(phone_snapshot);
       heading_fusion_.reset();
       last_motion_present_ms_ = 0;
-      music_page_enabled_ = false;
+      // Kept on across a disconnect: see the note in app_main. The page only
+      // carries data when a phone supplies it, so there is nothing to hide.
+      music_page_enabled_ = true;
       media_state_ = {};
       media_state_.source_name = "iPhone";
       media_state_.track_title = "等待连接";
@@ -560,15 +562,13 @@ moto::ble::AckStatus PhoneNavBridge::on_message(
               value.maximum_version < moto::ble::kProtocolVersion) {
             return moto::ble::AckStatus::Unsupported;
           }
-          const std::uint32_t required_media =
-              moto::ble::CapabilityMediaState |
-              moto::ble::CapabilityMusicCommands;
-          const bool media = value.state == moto::ble::ConnectionState::Ready &&
-              (value.capabilities & required_media) == required_media;
           {
             const std::lock_guard<std::mutex> lock(state_mutex_);
             phone_session_id_ = value.session_id;
-            music_page_enabled_ = media;
+            // The page stays in the rotation whether or not this phone can
+            // drive music, so Android - which currently has no media control -
+            // still gets the page instead of an apparently missing feature.
+            music_page_enabled_ = true;
             switch (value.state) {
               case moto::ble::ConnectionState::Ready:
                 ui_phone_connection_ = MOTO_UI_PHONE_ONLINE;

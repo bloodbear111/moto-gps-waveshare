@@ -69,6 +69,15 @@ class MotionHeadingFusion {
     if (!std::isfinite(yaw_rate_dps)) {
       return false;
     }
+    if (!has_phone_reference_) {
+      // Without a phone course there is nothing to integrate towards. This
+      // board carries an accelerometer and a gyroscope and no magnetometer, so
+      // a gyro-only heading has no absolute reference: its zero is wherever
+      // the board happened to boot, and a few tenths of a degree per second of
+      // bias walks it around the dial in minutes. That reads as a compass that
+      // is simply wrong. Hold the heading instead and let the phone anchor it.
+      return false;
+    }
     if (stationary_) {
       // Parked: hold the heading exactly. Keep last_sample_ms_ untouched so
       // the first sample after pulling away only sees a normal-rate gap.
