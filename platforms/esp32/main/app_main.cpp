@@ -3,6 +3,7 @@
 #include "ble_nav_transport_nimble.h"
 #include "board_port.h"
 #include "esp_err.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_sleep.h"
 #include "esp_timer.h"
@@ -45,6 +46,20 @@ void demo_tick_task(void* context) {
     // Match the display and route interpolation at 40 Hz. Keeping all three
     // clocks phase-compatible avoids periodic long frame gaps.
     vTaskDelay(pdMS_TO_TICKS(25));
+  }
+}
+
+// TEMPORARY bring-up diagnostic. The 1.85B port stops logging right after the
+// first LVGL flushes, which is either "the app is up and simply quiet" or "the
+// LVGL worker is blocked". This task keeps printing so the two can be told
+// apart from a serial capture, and it reports heap so a leak or a full pool
+// shows up immediately. Remove once the panel path is trusted.
+void bringup_heartbeat_task(void*) {
+  while (true) {
+    vTaskDelay(pdMS_TO_TICKS(3000));
+    ESP_LOGW(kTag, "heartbeat: alive, internal=%u psram=%u",
+             static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
+             static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)));
   }
 }
 
@@ -115,7 +130,12 @@ extern "C" void app_main(void) {
   ESP_LOGI(kTag, "starting %dx%d RGB565 firmware target",
            MOTO_DISPLAY_WIDTH, MOTO_DISPLAY_HEIGHT);
 
+  // TEMPORARY bring-up diagnostic; see bringup_heartbeat_task().
+  xTaskCreate(bringup_heartbeat_task, "bringup_hb", 3072, nullptr, 1, nullptr);
+
   const esp_err_t init_result = board_port_init();
+  ESP_LOGI(kTag, "step: board_port_init returned %s",
+           esp_err_to_name(init_result));
   if (init_result != ESP_OK) {
     ESP_LOGE(kTag, "board initialization stopped before shared UI startup: %s",
              esp_err_to_name(init_result));
@@ -149,8 +169,11 @@ extern "C" void app_main(void) {
   // Commit the deliberately black first animation frame while the physical
   // panel is still hidden, then reveal it.  This removes the white frame that
   // used to leak from LVGL's default startup screen.
+  ESP_LOGI(kTag, "step: boot screen drawn, forcing refresh");
   lv_refr_now(display);
+  ESP_LOGI(kTag, "step: first refresh committed, revealing panel");
   const esp_err_t reveal_result = board_port_reveal_display();
+  ESP_LOGI(kTag, "step: reveal returned %s", esp_err_to_name(reveal_result));
   if (reveal_result != ESP_OK) {
     ESP_LOGE(kTag, "could not reveal boot animation: %s",
              esp_err_to_name(reveal_result));
@@ -168,6 +191,7 @@ extern "C" void app_main(void) {
   }
 
   moto_nav_ui_create();
+  ESP_LOGI(kTag, "step: nav UI constructed");
   static moto::nav::NavPresenter presenter;
   static PhoneNavBridge phone_bridge(presenter);
   static BleNavTransport transport;
@@ -182,6 +206,7 @@ extern "C" void app_main(void) {
   moto_nav_ui_set_music_page_enabled(0);
   phone_bridge.install_ui_callbacks();
   board_port_unlock();
+  ESP_LOGI(kTag, "step: presenter installed");
 
   if (!phone_bridge.start_renderer()) {
     ESP_LOGE(kTag, "UI renderer startup failed; BLE was not started");
@@ -193,6 +218,8 @@ extern "C" void app_main(void) {
   transport.set_callbacks(receive_phone_message, update_phone_link,
                           &phone_bridge);
   const esp_err_t ble_result = transport.start();
+  ESP_LOGI(kTag, "step: BLE transport start returned %s",
+           esp_err_to_name(ble_result));
   if (ble_result != ESP_OK) {
     ESP_LOGE(kTag, "BLE startup failed; display remains in offline mode: %s",
              esp_err_to_name(ble_result));

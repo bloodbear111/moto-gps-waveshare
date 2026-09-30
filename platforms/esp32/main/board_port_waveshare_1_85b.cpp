@@ -48,11 +48,21 @@ constexpr gpio_num_t kLcdData1 = GPIO_NUM_45;
 constexpr gpio_num_t kLcdData2 = GPIO_NUM_42;
 constexpr gpio_num_t kLcdData3 = GPIO_NUM_41;
 constexpr gpio_num_t kLcdCs = GPIO_NUM_21;
+// Recorded for completeness. The panel exposes TE, but the adapter's TE_SYNC
+// mode deadlocks whenever a task other than its own worker flushes (see the
+// display_config comment below), so the current profile does not use this pin.
 constexpr gpio_num_t kLcdTe = GPIO_NUM_18;
 constexpr gpio_num_t kLcdReset = GPIO_NUM_3;
 constexpr gpio_num_t kLcdBacklight = GPIO_NUM_5;
 constexpr spi_host_device_t kLcdHost = SPI2_HOST;
-constexpr int kLcdPixelClockHz = 40 * 1000 * 1000;
+// 20 MHz rather than the 40 MHz the ST77916 component ships with. The LVGL
+// draw buffers are in PSRAM and the DMA reads them directly (see
+// psram_dma_direct below), and at 40 MHz that path underruns its TX FIFO
+// whenever something else is hammering PSRAM - the first build that got this
+// far logged "DMA TX underflow detected" exactly when the BLE stack came up.
+// Halving the clock keeps the same picture, roughly 20 MB/s -> 10 MB/s, and a
+// 40-row chunk still lands in about 3 ms.
+constexpr int kLcdPixelClockHz = 20 * 1000 * 1000;
 
 // --- Touch: CST816S, address 0x15, on the shared I2C bus -------------------
 constexpr gpio_num_t kTouchReset = GPIO_NUM_1;
@@ -121,6 +131,53 @@ esp_err_t initialize_backlight() {
   return gpio_set_level(kLcdBacklight, 0);
 }
 
+// Bring-up check that bypasses LVGL completely: allocate a full-frame buffer in
+// PSRAM, push three solid colours straight into the panel with the backlight
+// on, then blank again. If the panel shows red/green/blue then the panel and
+// backlight path is sound and anything still wrong is in the LVGL flush; if it
+// stays dark the fault is here rather than in the UI.
+esp_err_t panel_bringup_test() {
+  const std::size_t pixel_count =
+      static_cast<std::size_t>(MOTO_DISPLAY_WIDTH) * MOTO_DISPLAY_HEIGHT;
+  auto* frame = static_cast<std::uint16_t*>(
+      heap_caps_malloc(pixel_count * sizeof(std::uint16_t),
+                       MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (frame == nullptr) {
+    ESP_LOGW(kTag, "no PSRAM for the panel bring-up test");
+    return ESP_ERR_NO_MEM;
+  }
+
+  ESP_RETURN_ON_ERROR(gpio_set_level(kLcdBacklight, 1), kTag,
+                      "backlight on failed");
+  ESP_RETURN_ON_ERROR(esp_lcd_panel_disp_on_off(panel, true), kTag,
+                      "panel enable failed");
+
+  const std::uint16_t colours[3] = {
+      0xF800,  // red
+      0x07E0,  // green
+      0x001F,  // blue
+  };
+  for (int index = 0; index < 3; ++index) {
+    for (std::size_t pixel = 0; pixel < pixel_count; ++pixel) {
+      frame[pixel] = colours[index];
+    }
+    ESP_LOGI(kTag, "panel test: colour %d", index);
+    ESP_RETURN_ON_ERROR(
+        esp_lcd_panel_draw_bitmap(panel, 0, 0, MOTO_DISPLAY_WIDTH,
+                                  MOTO_DISPLAY_HEIGHT, frame),
+        kTag, "panel test draw failed");
+    vTaskDelay(pdMS_TO_TICKS(700));
+  }
+
+  heap_caps_free(frame);
+  ESP_RETURN_ON_ERROR(esp_lcd_panel_disp_on_off(panel, false), kTag,
+                      "panel blank failed");
+  ESP_RETURN_ON_ERROR(gpio_set_level(kLcdBacklight, 0), kTag,
+                      "backlight off failed");
+  ESP_LOGI(kTag, "panel test: done");
+  return ESP_OK;
+}
+
 esp_err_t initialize_panel() {
   spi_bus_config_t bus_config = {};
   bus_config.sclk_io_num = kLcdSclk;
@@ -128,8 +185,12 @@ esp_err_t initialize_panel() {
   bus_config.data1_io_num = kLcdData1;
   bus_config.data2_io_num = kLcdData2;
   bus_config.data3_io_num = kLcdData3;
+  // Sized for a whole frame, not just one LVGL draw buffer. The bring-up test
+  // below pushes a complete 360x360 image in a single transaction; with the
+  // smaller LVGL-sized limit that transfer was truncated and the panel showed
+  // torn garbage lines instead of a solid colour.
   bus_config.max_transfer_sz =
-      MOTO_DISPLAY_WIDTH * kDrawBufferHeight * sizeof(std::uint16_t);
+      MOTO_DISPLAY_WIDTH * MOTO_DISPLAY_HEIGHT * sizeof(std::uint16_t);
   bus_config.flags = SPICOMMON_BUSFLAG_MASTER | SPICOMMON_BUSFLAG_QUAD;
   ESP_RETURN_ON_ERROR(
       spi_bus_initialize(kLcdHost, &bus_config, SPI_DMA_CH_AUTO), kTag,
@@ -148,6 +209,15 @@ esp_err_t initialize_panel() {
   io_config.lcd_cmd_bits = 32;
   io_config.lcd_param_bits = 8;
   io_config.flags.quad_mode = 1;
+  // The LVGL draw buffers live in PSRAM, which is the only place with room for
+  // them. Without this flag the SPI master has to bounce every transfer through
+  // a private DMA buffer in internal RAM (setup_dma_priv_buffer), and with BLE
+  // already resident there are only ~44 KB of internal RAM free - far too
+  // little for a 28.8 KB 40-row chunk. The first flush then fails with
+  // "Failed to allocate priv TX buffer" and the panel stays dark. Letting the
+  // DMA read straight out of PSRAM costs some throughput but needs no bounce
+  // buffer at all.
+  io_config.flags.psram_dma_direct = 1;
   ESP_RETURN_ON_ERROR(
       esp_lcd_new_panel_io_spi(static_cast<esp_lcd_spi_bus_handle_t>(kLcdHost),
                                &io_config, &panel_io),
@@ -247,6 +317,7 @@ extern "C" esp_err_t board_port_init(void) {
   ESP_RETURN_ON_ERROR(initialize_backlight(), kTag, "backlight init failed");
   ESP_RETURN_ON_ERROR(initialize_panel(), kTag, "panel init failed");
   ESP_RETURN_ON_ERROR(initialize_touch(), kTag, "touch init failed");
+  ESP_RETURN_ON_ERROR(panel_bringup_test(), kTag, "panel bring-up test failed");
 
   // esp_lv_adapter_init() is what calls lv_init(), so it must come before the
   // pool below: LVGL's built-in allocator does not exist yet, and lv_mem_add_pool
@@ -271,18 +342,21 @@ extern "C" esp_err_t board_port_init(void) {
   ESP_LOGI(kTag, "LVGL PSRAM pool: %u KiB",
            static_cast<unsigned>(kLvglExtraPoolBytes / 1024U));
 
-  // Tear-synchronised profile rather than the plain double-buffered one.
+  // Same profile shape as the working 1.75C port: PSRAM draw buffers, double
+  // buffering, no tear-avoidance mode.
   //
-  // The plain profile finishes a frame through a semaphore that is only given
-  // from the SPI colour-transfer ISR. That ISR never fires with the synchronous
-  // (queue depth 1) transfers this wiring needs, so the LVGL worker blocked
-  // forever in display_bridge_v9_wait_double_ready. The panel exposes TE on
-  // GPIO18, and this profile synchronises on that instead of on the transfer
-  // completion interrupt.
+  // Tear avoidance must stay NONE here. TE_SYNC mode makes the flush path block
+  // on a task notification that the SPI completion ISR only ever delivers to
+  // the adapter's own worker task (display_bridge_v9_get_notify_task falls back
+  // to ctx->task). Anybody else who touches the panel - app_main calling
+  // lv_refr_now() before revealing the display, for example - then waits on a
+  // notification nobody will ever send and the boot stops dead after the first
+  // frame. With mode NONE the flush submits the transfer and the completion ISR
+  // itself calls lv_display_flush_ready(), which works from any caller.
   esp_lv_adapter_display_config_t display_config =
-      ESP_LV_ADAPTER_DISPLAY_SPI_WITH_PSRAM_TE_DEFAULT_CONFIG(
+      ESP_LV_ADAPTER_DISPLAY_SPI_WITH_PSRAM_DEFAULT_CONFIG(
           panel, panel_io, MOTO_DISPLAY_WIDTH, MOTO_DISPLAY_HEIGHT,
-          ESP_LV_ADAPTER_ROTATE_0, kLcdTe, kLcdPixelClockHz, 4, 16);
+          ESP_LV_ADAPTER_ROTATE_0);
   display_config.profile.buffer_height = kDrawBufferHeight;
   display_config.profile.use_psram = true;
   display_config.profile.require_double_buffer = true;
@@ -334,6 +408,7 @@ extern "C" esp_err_t board_port_reveal_display(void) {
     ESP_RETURN_ON_ERROR(gpio_set_level(kLcdBacklight, 1), kTag,
                         "backlight on failed");
     display_revealed = true;
+    ESP_LOGI(kTag, "panel revealed: display on + backlight high");
   }
   return ESP_OK;
 }
