@@ -9,11 +9,15 @@ import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothProfile
 import android.bluetooth.BluetoothStatusCodes
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.os.Build
 import android.os.SystemClock
 import android.util.Log
 import androidx.annotation.RequiresPermission
+import androidx.core.content.ContextCompat
 import io.github.bloodbear111.motogps.protocol.AckStatus
 import io.github.bloodbear111.motogps.protocol.BleHandshakeGate
 import io.github.bloodbear111.motogps.protocol.BleSessionHeartbeatClock
@@ -95,6 +99,44 @@ class MotoBleCentral(
     private var rx: BluetoothGattCharacteristic? = null
     private var tx: BluetoothGattCharacteristic? = null
 
+    /**
+     * The display's RX characteristic carries `BLE_GATT_CHR_F_WRITE_ENC`, so
+     * until the link is encrypted its ATT layer drops every frame we send. A
+     * write without response cannot report that back: the phone sees a
+     * successful local call, the peripheral sees nothing, and the handshake
+     * waits for a Ready that can never arrive. Pairing first is therefore part
+     * of connecting - and the encryption requirement stays exactly as the
+     * protocol specifies instead of being relaxed in firmware.
+     */
+    private var bondWaiter: CompletableDeferred<GattOperationQueue.Outcome>? = null
+
+    private val bondReceiver = object : BroadcastReceiver() {
+        override fun onReceive(receiverContext: Context, intent: Intent) {
+            if (intent.action != BluetoothDevice.ACTION_BOND_STATE_CHANGED) return
+            val device = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+            } ?: return
+            if (device.address != gatt?.device?.address) return
+            val waiter = bondWaiter ?: return
+            when (intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.ERROR)) {
+                BluetoothDevice.BOND_BONDED -> {
+                    bondWaiter = null
+                    waiter.complete(GattOperationQueue.Outcome.Success)
+                }
+
+                BluetoothDevice.BOND_NONE -> {
+                    bondWaiter = null
+                    waiter.complete(
+                        GattOperationQueue.Outcome.Failure("pairing with the display failed"),
+                    )
+                }
+            }
+        }
+    }
+
     private val writeFifo = ArrayDeque<ByteArray>()
     private var pumping = false
     private var lastWriteMs = 0L
@@ -118,6 +160,43 @@ class MotoBleCentral(
         // Created up-front at the conservative default so the handshake can run
         // even if the stack never reports a larger ATT MTU.
         attachCodec(MotoProtocolCodec.DEFAULT_MAXIMUM_FRAME_SIZE)
+        ContextCompat.registerReceiver(
+            context,
+            bondReceiver,
+            IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+    }
+
+    /**
+     * Completes [signal] once the link to [connection]'s device is bonded (and
+     * therefore encrypted). Already-bonded devices complete immediately, so a
+     * reconnect costs nothing; a fresh pairing waits for the system callback and
+     * is bounded by the GATT queue's own timeout.
+     */
+    @RequiresPermission(allOf = [Manifest.permission.BLUETOOTH_CONNECT])
+    private fun ensureBonded(
+        connection: BluetoothGatt,
+        signal: CompletableDeferred<GattOperationQueue.Outcome>,
+    ) {
+        if (connection.device.bondState == BluetoothDevice.BOND_BONDED) {
+            signal.complete(GattOperationQueue.Outcome.Success)
+            return
+        }
+        if (bondWaiter != null) {
+            signal.complete(
+                GattOperationQueue.Outcome.Failure("another pairing attempt is already running"),
+            )
+            return
+        }
+        bondWaiter = signal
+        val started = runCatching { connection.device.createBond() }.getOrDefault(false)
+        if (!started) {
+            bondWaiter = null
+            signal.complete(
+                GattOperationQueue.Outcome.Failure("the system refused to start pairing"),
+            )
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -254,7 +333,7 @@ class MotoBleCentral(
             val address = connection.device.address
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 Log.w(TAG, "connection state status=$status newState=$newState")
-                onTransportLost(address, "GATT connection failed (status $status)")
+                onTransportLost(connection, address, "GATT connection failed (status $status)")
                 runCatching { connection.close() }
                 return
             }
@@ -275,7 +354,7 @@ class MotoBleCentral(
                 }
 
                 BluetoothProfile.STATE_DISCONNECTED ->
-                    onTransportLost(address, "disconnected by peer or stack")
+                    onTransportLost(connection, address, "disconnected by peer or stack")
 
                 else -> Unit
             }
@@ -285,12 +364,13 @@ class MotoBleCentral(
         override fun onServicesDiscovered(connection: BluetoothGatt, status: Int) {
             val address = connection.device.address
             if (status != BluetoothGatt.GATT_SUCCESS) {
-                onTransportLost(address, "service discovery failed (status $status)")
+                onTransportLost(connection, address, "service discovery failed (status $status)")
                 return
             }
             val service = connection.getService(MotoBleUuids.service)
             if (service == null) {
                 onTransportLost(
+                    connection,
                     address,
                     "navigation service ${MotoBleUuids.service} not found on this device",
                 )
@@ -300,13 +380,18 @@ class MotoBleCentral(
             tx = service.getCharacteristic(MotoBleUuids.deviceToPhone)
             if (rx == null || tx == null) {
                 onTransportLost(
+                    connection,
                     address,
                     "RX/TX characteristics missing; this firmware build is not v1 compatible",
                 )
                 return
             }
 
-            // MTU first: the negotiated value bounds every later write, including
+            // Pair before the first write: the display drops frames on an
+            // unencrypted link and a write without response cannot report that.
+            queue.enqueue { signal -> ensureBonded(connection, signal) }
+
+            // MTU next: the negotiated value bounds every later write, including
             // the handshake.
             queue.enqueue { signal ->
                 val requested = runCatching { connection.requestMtu(REQUESTED_ATT_MTU) }
@@ -351,6 +436,7 @@ class MotoBleCentral(
             }
         }
 
+        @SuppressLint("MissingPermission")
         override fun onCharacteristicWrite(
             connection: BluetoothGatt,
             characteristic: BluetoothGattCharacteristic,
@@ -361,6 +447,20 @@ class MotoBleCentral(
                 // this message rather than interleaving the next one into it.
                 Log.w(TAG, "characteristic write failed status=$status")
                 synchronized(writeFifo) { writeFifo.clear() }
+                // 5 = insufficient authentication, 8 = insufficient encryption.
+                // The frame was rejected because the link is not encrypted yet
+                // (correct behaviour on the display's side), so pair and restart
+                // the handshake instead of leaving the UI waiting forever.
+                if (status == 5 || status == 8) {
+                    val current = gatt
+                    if (current != null) {
+                        queue.enqueue { signal -> ensureBonded(current, signal) }
+                        queue.enqueue { signal ->
+                            startHandshake(current.device.address)
+                            signal.complete(GattOperationQueue.Outcome.Success)
+                        }
+                    }
+                }
             }
             pumping = false
             pump()
@@ -503,9 +603,20 @@ class MotoBleCentral(
         queue.failAll("session torn down")
     }
 
-    private fun onTransportLost(address: String, reason: String) {
+    /**
+     * @param connection the [BluetoothGatt] that reported the loss. It is passed
+     *   explicitly because callbacks from a *replaced* connection arrive after
+     *   `connect()` has already started a new one. Acting on the shared `gatt`
+     *   field for those closed the new connection instead, so tapping "connect"
+     *   again looked like it did nothing at all: the replacement was torn down
+     *   microseconds after it was created and the watch never saw a central.
+     */
+    private fun onTransportLost(connection: BluetoothGatt?, address: String, reason: String) {
+        closeGattQuietly(connection)
+        if (connection != null && connection !== gatt) {
+            return
+        }
         teardownSession()
-        closeGattQuietly(gatt)
         gatt = null
         _state.value = MotoBleConnectionState.Disconnected(address, reason)
     }
@@ -574,6 +685,7 @@ class MotoBleCentral(
         when (status.state) {
             ConnectionState.Closing.code -> {
                 onTransportLost(
+                    gatt,
                     gatt?.device?.address.orEmpty(),
                     "device closed the protocol session",
                 )
@@ -837,6 +949,8 @@ class MotoBleCentral(
         get() = protocolReady
 
     override fun close() {
+        runCatching { context.unregisterReceiver(bondReceiver) }
+        bondWaiter = null
         heartbeatJob?.cancel()
         watchdogJob?.cancel()
         ackJob?.cancel()

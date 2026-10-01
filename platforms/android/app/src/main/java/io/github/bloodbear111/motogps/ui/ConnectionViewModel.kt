@@ -16,6 +16,7 @@ import io.github.bloodbear111.motogps.protocol.GoldenCheckResult
 import io.github.bloodbear111.motogps.protocol.MotoNativeLibrary
 import io.github.bloodbear111.motogps.protocol.MotoProtocolCodec
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -98,6 +99,12 @@ class ConnectionViewModel(application: Application) : AndroidViewModel(applicati
                 }
             } catch (error: SecurityException) {
                 _scanError.value = "蓝牙权限已被撤销，请重新授权"
+            } catch (error: CancellationException) {
+                // stopScan() cancels this job - including from connect(), which
+                // stops scanning before it connects. Cancellation is not a
+                // failure, so rethrow it; showing it left a live-looking
+                // "StandaloneCoroutine was cancelled" under the device list.
+                throw error
             } catch (error: Throwable) {
                 _scanError.value = error.message ?: "扫描失败"
             } finally {
