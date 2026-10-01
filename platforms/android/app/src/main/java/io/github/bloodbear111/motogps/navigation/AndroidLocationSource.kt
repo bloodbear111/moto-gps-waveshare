@@ -1,16 +1,19 @@
 package io.github.bloodbear111.motogps.navigation
 
 import android.annotation.SuppressLint
+import android.app.ActivityManager
 import android.app.AppOpsManager
 import android.content.Context
 import android.location.GnssStatus
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.os.Process
 import android.os.SystemClock
 import androidx.annotation.RequiresApi
@@ -92,6 +95,9 @@ class AndroidLocationSource(
         private const val RESUBSCRIBE_AFTER_MS = 20_000L
         private const val MAX_ATTEMPTS = 2
 
+        /** One-shot probe budget: long enough for a fix, short enough to report. */
+        private const val PROBE_TIMEOUT_MS = 15_000L
+
         /** `LocationManager.FUSED_PROVIDER` is API 31+; spelled out for API 26. */
         private const val PROVIDER_FUSED = "fused"
 
@@ -120,6 +126,7 @@ class AndroidLocationSource(
     override fun fixes(): Flow<MotoGnssFix> = callbackFlow {
         onEvent?.invoke("perm " + BlePermissions.describeLocationPermission(context))
         onEvent?.invoke("appOps " + describeLocationOps(context))
+        onEvent?.invoke("device " + describeDeviceRestrictions(context))
 
         if (!BlePermissions.hasNavigationLocationPermission(context)) {
             close(NavigationSource.Failure.PermissionDenied)
@@ -202,6 +209,9 @@ class AndroidLocationSource(
         val answered = ConcurrentHashMap<String, Boolean>()
         val subscribed = mutableListOf<Pair<String, LocationListener>>()
         val satellites = watchSatellites(manager, executor, fixesSeen)
+        // A dead callback executor would look exactly like a silent location
+        // service, so prove it runs before blaming the platform for the silence.
+        executor.execute { onEvent?.invoke("callback executor alive") }
 
         /** Single place that counts a fix, so every path logs the same way. */
         val accept: (String, Location) -> Unit = { provider, location ->
@@ -347,6 +357,11 @@ class AndroidLocationSource(
     /**
      * One-shot location query, a separate implementation inside the platform
      * from the listener subscription, fired once per provider at subscribe time.
+     *
+     * Bounded on API 31+: without a duration the query waits forever for a fix
+     * and reports nothing at all, which is indistinguishable from a service that
+     * refused the request. With one, a provider that has nothing answers "null"
+     * after the timeout, and that difference is the whole point of the probe.
      */
     @RequiresApi(Build.VERSION_CODES.R)
     @SuppressLint("MissingPermission")
@@ -358,9 +373,19 @@ class AndroidLocationSource(
     ) {
         for (provider in providers) {
             try {
-                manager.getCurrentLocation(provider, null, executor) { location ->
+                val consumer = { location: Location? ->
                     onEvent?.invoke("getCurrentLocation[$provider]=" + describeFix(location))
                     if (location != null) accept(provider, location)
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    val request = android.location.LocationRequest.Builder(intervalMs)
+                        .setQuality(android.location.LocationRequest.QUALITY_HIGH_ACCURACY)
+                        .setMaxUpdates(1)
+                        .setDurationMillis(PROBE_TIMEOUT_MS)
+                        .build()
+                    manager.getCurrentLocation(provider, request, null, executor, consumer)
+                } else {
+                    manager.getCurrentLocation(provider, null, executor, consumer)
                 }
             } catch (error: Throwable) {
                 onEvent?.invoke(
@@ -407,10 +432,52 @@ class AndroidLocationSource(
                 manager.registerGnssStatusCallback(callback, Handler(Looper.getMainLooper()))
                 true
             }
+            // Registration itself is silent when it fails, and "registered but
+            // never called" is a different fault from "registration refused".
+            onEvent?.invoke("gnss status callback registered=$registered")
             if (registered) callback else null
+        } catch (error: Throwable) {
+            onEvent?.invoke(
+                "gnss status callback failed ${error::class.java.simpleName}",
+            )
+            null
+        }
+    }
+
+    /**
+     * The three OEM-level switches that can silence location for one app while
+     * the runtime grant, the app-op and the master switch all read as fine:
+     * the battery-restricted state MIUI's 省电策略 sets, the battery
+     * optimization exemption, and whether Wi-Fi/Bluetooth scanning may run for
+     * positioning. Indoors, that last one is the only thing that produces a
+     * network fix at all.
+     */
+    private fun describeDeviceRestrictions(context: Context): String {
+        val restricted = try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                context.getSystemService(ActivityManager::class.java)
+                    ?.isBackgroundRestricted
+            } else {
+                null
+            }
         } catch (error: Throwable) {
             null
         }
+        val optimized = try {
+            context.getSystemService(PowerManager::class.java)
+                ?.isIgnoringBatteryOptimizations(context.packageName)
+                ?.let { if (it) "no" else "yes" }
+        } catch (error: Throwable) {
+            null
+        }
+        val scan = try {
+            context.getSystemService(WifiManager::class.java)?.isScanAlwaysAvailable
+        } catch (error: Throwable) {
+            null
+        }
+        return "backgroundRestricted=${restricted ?: "?"}" +
+            " batteryOptimized=${optimized ?: "?"}" +
+            " wifiScanAlwaysAvailable=${scan ?: "?"}"
     }
 
     /**

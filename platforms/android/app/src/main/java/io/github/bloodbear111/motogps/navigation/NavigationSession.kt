@@ -6,6 +6,7 @@ import io.github.bloodbear111.motogps.protocol.MotoSnapshotInput
 import io.github.bloodbear111.motogps.protocol.NavigationState
 import io.github.bloodbear111.motogps.protocol.NetworkState
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -125,6 +126,11 @@ class NavigationSession(
                     lastFixAtMs = clock()
                     drain(core.pushFix(fix))
                 }
+            } catch (cancelled: CancellationException) {
+                // Restarting the location client cancels the previous loop on
+                // purpose. Reporting that as "StandaloneCoroutine was cancelled"
+                // made a deliberate restart look like a fault.
+                throw cancelled
             } catch (error: Throwable) {
                 _state.value = _state.value.copy(lastError = error.message ?: "location failed")
             }

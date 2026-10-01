@@ -369,6 +369,38 @@ www.bloodbear.xin/47.82.123.5 …`——那是**换服务器之前的旧 IP**。
 （`QUALITY_HIGH_ACCURACY`，network provider 用 balanced；passive 仍用低功耗旧接口，
 不抬高别人已申请的精度），并加了「重新定位 / 系统定位设置 / 应用权限」三个入口。
 
+### 📱 v0.2.2 诊断真机输出（小米 14 Pro，决定性）
+
+```text
+perm fine=true coarse=true
+appOps fine=allow coarse=allow
+locationEnabled=true
+providers passive,network,fused,gps
+listening gps,fused,network,passive
+lastKnown[gps|fused|network|passive]=none
+no callback in 20s
+silent: gps,fused,network,passive
+resubscribing (attempt 2)  → 仍全为 none
+```
+
+由此**已排除**：
+
+1. 权限与授权层：精确授权、app-op 均为 allow、总开关为 true —— 全部正常。
+2. 应用侧投递路径：v0.2.0 用主线程回调、v0.2.2 用独立线程回调，两条路径**同样 0 回调**。
+3. 订阅失败：四个 provider 全部订阅成功（没有 `provider … unavailable`）。
+4. GNSS 状态回调也一次未触发（没有 `satellites …` 行）。
+
+`lastKnown` 的缓存是**全局**的、不按应用区分。四个 provider（含 `fused`/`network`）
+缓存全空，说明这台手机的定位服务在最近一段时间里**没有为任何应用产出过位置**。
+即故障在**手机系统侧**，不在 App：要么定位服务/定位芯片卡住，要么室内既无卫星
+又关掉了辅助定位（WLAN 扫描）。
+
+v0.2.4 再补三项设备级证据用于收口：`backgroundRestricted`（MIUI 省电策略）、
+`batteryOptimized`、`wifiScanAlwaysAvailable`，并打印 GNSS 回调**是否注册成功**、
+回调线程是否真的启动；同时把一次定位探测加上 15 s 超时（原先是无限等待，
+静默与"平台无数据"无法区分）。另修掉一处真实缺陷：重启定位时取消旧任务会被
+当成错误显示成 `StandaloneCoroutine was cancelled`。
+
 ### ⬜ 仍未完成
 
 1. **演示模式**：明确标注为模拟；真实定位或网络失败时**不自动切换**到假数据。
