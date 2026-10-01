@@ -51,6 +51,13 @@ class NavigationSession(
         val horizontalAccuracyM: Double = 0.0,
         val sentSnapshots: Int = 0,
         val sentRouteWindows: Int = 0,
+        /**
+         * What the core believes about the gateway, and whether it has a route
+         * request outstanding. The core silently builds no route while it thinks
+         * the network is offline, so this has to be visible.
+         */
+        val gatewayOnline: Boolean = false,
+        val routeRequestInFlight: Boolean = false,
         /** Fixes handed to the core. Zero means the phone never produced one. */
         val fixesAccepted: Int = 0,
         /** Age of the newest fix in ms, or null when there has never been one. */
@@ -77,6 +84,18 @@ class NavigationSession(
         destinationName = label
         activeRoute = null
         _state.value = Snapshot(active = true, destinationName = label)
+        // The core only builds a route request while it believes the phone can
+        // reach the gateway; its default is Offline. The iOS runtime states
+        // "online" here for exactly that reason, and this session used to leave
+        // it Offline (its Bluetooth-linked setter was never called from
+        // anywhere), so `request_route_if_possible` returned on every tick and
+        // no route was ever requested - the round display sat on "choose a
+        // destination on the phone" with a perfect fix and a working gateway.
+        //
+        // This is a statement about the phone's data path, not about the round
+        // display: a display that is not connected must not stop the phone from
+        // planning a route.
+        drain(core.setNetworkState(NetworkState.Online))
         drain(core.beginNavigation(destination))
         startFixLoop()
         startTickLoop()
@@ -98,10 +117,6 @@ class NavigationSession(
         // holding the last frame forever.
         mirrorToDisplay()
         _state.value = Snapshot()
-    }
-
-    fun onBluetoothLinkChanged(connected: Boolean) {
-        drain(core.setNetworkState(if (connected) NetworkState.Online else NetworkState.Offline))
     }
 
     /**
@@ -310,6 +325,8 @@ class NavigationSession(
             horizontalAccuracyM = snapshot.horizontalAccuracyM,
             sentSnapshots = if (sent) _state.value.sentSnapshots + 1 else _state.value.sentSnapshots,
             sentRouteWindows = windows,
+            gatewayOnline = snapshot.network == NetworkState.Online.code,
+            routeRequestInFlight = snapshot.routeRequestInFlight,
             fixesAccepted = fixesAccepted,
             lastFixAgeMs = lastFixAtMs?.let { clock() - it },
         )

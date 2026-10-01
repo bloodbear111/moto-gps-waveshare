@@ -238,6 +238,20 @@ private fun ActiveNavigationCard(
                 ),
                 style = MaterialTheme.typography.bodySmall,
             )
+            Text(
+                text = stringResource(
+                    R.string.nav_core_state,
+                    stringResource(
+                        if (session.gatewayOnline) R.string.nav_core_online
+                        else R.string.nav_core_offline,
+                    ),
+                    stringResource(
+                        if (session.routeRequestInFlight) R.string.nav_core_yes
+                        else R.string.nav_core_no,
+                    ),
+                ),
+                style = MaterialTheme.typography.bodySmall,
+            )
             session.lastError?.let {
                 Text(
                     text = it,

@@ -196,11 +196,6 @@ class ConnectionViewModel(application: Application) : AndroidViewModel(applicati
         navSession.restartLocation()
     }
 
-    /** The display link is the session's network state; keep it in step. */
-    fun onDisplayLinkChanged(connected: Boolean) {
-        navSession.onBluetoothLinkChanged(connected)
-    }
-
     private var scanJob: Job? = null
 
     init {

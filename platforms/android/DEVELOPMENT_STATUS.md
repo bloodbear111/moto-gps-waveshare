@@ -491,6 +491,35 @@ SHA1    6E:16:34:4A:CA:72:68:5D:68:BF:1B:E9:32:9A:0B:B9:C0:81:DB:F7   （debug �
 
 仍未验证：绑定修正后能否真正出 fix。
 
+### 📱 高德定位真机第二轮：定位通了，路线仍不请求（v0.4.0 已修）
+
+真机日志确认高德已经出 fix，且坐标转换正确：
+
+```text
+source: AMap
+amap started mode=Hight_Accuracy interval=1000ms
+amap first fix type=WiFi coord=GCJ02 acc=30m age=2s
+amap coords GCJ-02 -> WGS84
+```
+
+但核心始终不请求路线（`路线窗口 0 次`）。根因不在定位：
+
+1. `NavCore::request_route_if_possible()` 的第一道门就是
+   `view_.network != NetworkState::Online` 直接返回；
+2. 核心里 `network` 的默认值是 **Offline**；
+3. iOS 参考实现（`SharedNavigationRuntime.start`）在开始导航时显式调用
+   `bridge.setNetworkStateName("online")`；
+4. 安卓这边却把这个状态接到了**圆屏蓝牙链路**上，而且
+   `onDisplayLinkChanged` 在 ViewModel 里**从来没有任何调用点**——
+   于是状态永远是 Offline，路线请求一次都没发出过。
+
+修复：`NavigationSession.start()` 在 `beginNavigation` 之前显式置
+`NetworkState.Online`（与 iOS 一致），并删除那条错误的蓝牙耦合。
+圆屏没连上手机时，手机照样应该能规划路线。
+
+同时把「核心是否认为网关在线 / 路线请求是否在飞」直接显示在导航卡片上
+（`核心：网关 在线，路线请求中 是/否`），这类"核心静默什么都不做"的问题下次一眼可见。
+
 阶段五（前台服务与锁屏导航）、阶段六（地图下载与可选音乐控制）、
 阶段七（完整测试与交付）、阶段八（Fork 与 Release）见
 [README.md](README.md) 与 [UPSTREAM_CONTRIBUTION.md](UPSTREAM_CONTRIBUTION.md)。
