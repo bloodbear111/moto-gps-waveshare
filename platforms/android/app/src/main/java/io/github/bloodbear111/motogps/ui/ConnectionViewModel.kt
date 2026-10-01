@@ -13,6 +13,7 @@ import io.github.bloodbear111.motogps.ble.MotoBleConnectionState
 import io.github.bloodbear111.motogps.ble.MotoBleDiscovery
 import io.github.bloodbear111.motogps.ble.MotoBleScanner
 import io.github.bloodbear111.motogps.gateway.GatewayConfiguration
+import io.github.bloodbear111.motogps.gateway.GatewayFailure
 import io.github.bloodbear111.motogps.gateway.GatewayPlace
 import io.github.bloodbear111.motogps.gateway.GatewayResult
 import io.github.bloodbear111.motogps.gateway.MotoGatewayClient
@@ -111,17 +112,30 @@ class ConnectionViewModel(application: Application) : AndroidViewModel(applicati
     private val _destinationError = MutableStateFlow<String?>(null)
     val destinationError: StateFlow<String?> = _destinationError.asStateFlow()
 
+    /**
+     * True when the last gateway call failed at the transport layer.
+     *
+     * "gateway unreachable" is almost never the server: it is a phone or router
+     * still holding the previous IP for the gateway hostname after the server
+     * moved. The resolved address is already in the message; this flag adds the
+     * one action that clears it, on the screen where the failure appears.
+     */
+    private val _gatewayUnreachable = MutableStateFlow(false)
+    val gatewayUnreachable: StateFlow<Boolean> = _gatewayUnreachable.asStateFlow()
+
     /** Searches POIs through the configured gateway. Nothing is cached or faked. */
     fun searchDestination(keywords: String) {
         if (_searching.value) return
         _searching.value = true
         _destinationError.value = null
+        _gatewayUnreachable.value = false
         viewModelScope.launch {
             when (val result = gatewayClient.searchPlaces(_gatewayAddress.value, keywords)) {
                 is GatewayResult.Success -> _places.value = result.value
                 is GatewayResult.Failure -> {
                     _places.value = emptyList()
                     _destinationError.value = result.failure.message ?: "search failed"
+                    _gatewayUnreachable.value = result.failure is GatewayFailure.Transport
                 }
             }
             _searching.value = false

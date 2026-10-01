@@ -69,6 +69,8 @@ class MainActivity : ComponentActivity() {
                     val searching by viewModel.searching.collectAsStateWithLifecycle()
                     val destinationError by
                         viewModel.destinationError.collectAsStateWithLifecycle()
+                    val gatewayUnreachable by
+                        viewModel.gatewayUnreachable.collectAsStateWithLifecycle()
                     val navigation by viewModel.navigation.collectAsStateWithLifecycle()
                     val locationEvents by
                         viewModel.locationEvents.collectAsStateWithLifecycle()
@@ -84,6 +86,7 @@ class MainActivity : ComponentActivity() {
                         places = places,
                         searching = searching,
                         destinationError = destinationError,
+                        gatewayUnreachable = gatewayUnreachable,
                         navigation = navigation,
                         locationEvents = locationEvents,
                         hasBluetoothPermission = bluetoothPermissionGranted,

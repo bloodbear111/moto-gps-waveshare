@@ -40,6 +40,7 @@ fun NavScreen(
     places: List<GatewayPlace>,
     searching: Boolean,
     destinationError: String?,
+    gatewayUnreachable: Boolean,
     session: NavigationSession.Snapshot,
     hasPreciseLocation: Boolean,
     approximateLocationOnly: Boolean,
@@ -119,6 +120,15 @@ fun NavScreen(
             Text(
                 text = it,
                 color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+
+        if (gatewayUnreachable) {
+            // The message above already names the address the phone actually
+            // dialled; this is the action that clears a stale answer for it.
+            Text(
+                text = stringResource(R.string.nav_gateway_dns_hint),
                 style = MaterialTheme.typography.bodySmall,
             )
         }

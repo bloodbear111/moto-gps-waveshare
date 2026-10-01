@@ -63,6 +63,7 @@
     <string name="tab_nav">导航</string>
     <string name="nav_title">导航与目的地</string>
     <string name="nav_gateway_missing">尚未配置网关地址，请到「设置」里填写，例如 https://www.bloodbear.xin/moto-gps/api</string>
+    <string name="nav_gateway_dns_hint">连不上网关时先看括号里的 IP 是不是当前服务器。刚换过服务器的话，手机或路由器可能还缓存着旧 IP：开关一次飞行模式，或重启手机 / 路由器，再点「搜索」。换到 5G 数据试一次通常立刻生效。</string>
     <string name="nav_gateway">网关：%1$s</string>
     <string name="nav_search_label">搜索目的地</string>
     <string name="nav_search">搜索</string>
