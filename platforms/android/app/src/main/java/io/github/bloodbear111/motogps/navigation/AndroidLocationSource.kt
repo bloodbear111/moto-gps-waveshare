@@ -58,98 +58,97 @@ class AndroidLocationSource(
             return@callbackFlow
         }
 
-        if (fusedLocationAvailable()) {
-            val client = LocationServices.getFusedLocationProviderClient(context)
-            val callback = object : LocationCallback() {
-                override fun onLocationResult(result: LocationResult) {
-                    result.lastLocation?.let { trySend(it.toFix()) }
+        // Platform providers first, and Play services only as the last resort.
+        //
+        // The order matters on phones sold in mainland China: many report
+        // GoogleApiAvailability.SUCCESS (the packages are present) while the
+        // fused backend delivers nothing at all. Trusting fused because it
+        // "exists" produced a flow that was subscribed, permitted, visible in
+        // Android's location-access log, and completely silent - which is
+        // exactly what "no fix ever arrives" looked like here. The platform
+        // providers are the ones a domestic phone actually fills.
+        val manager = context.getSystemService(LocationManager::class.java)
+        val providers = manager
+            ?.getProviders(true)
+            ?.filter {
+                it == LocationManager.GPS_PROVIDER || it == LocationManager.NETWORK_PROVIDER
+            }
+            .orEmpty()
+
+        if (providers.isNotEmpty()) {
+            onEvent?.invoke("listening: ${providers.joinToString(",")}")
+            var firstFixLogged = false
+            val subscribed = mutableListOf<Pair<String, LocationListener>>()
+            for (provider in providers) {
+                val listener = object : LocationListener {
+                    override fun onLocationChanged(location: Location) {
+                        if (!firstFixLogged) {
+                            firstFixLogged = true
+                            onEvent?.invoke("first fix from $provider")
+                        }
+                        trySend(location.toFix())
+                    }
+
+                    @Deprecated("Required on API < 30")
+                    override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) =
+                        Unit
+
+                    override fun onProviderEnabled(provider: String) = Unit
+
+                    override fun onProviderDisabled(provider: String) = Unit
+                }
+                try {
+                    manager.requestLocationUpdates(
+                        provider,
+                        intervalMs,
+                        minimumDistanceM,
+                        listener,
+                        Looper.getMainLooper(),
+                    )
+                    subscribed += provider to listener
+                } catch (error: SecurityException) {
+                    close(NavigationSource.Failure.PermissionDenied)
+                    return@callbackFlow
+                } catch (error: IllegalArgumentException) {
+                    // Provider disappeared between listing and subscribing; keep
+                    // the others rather than failing the whole session.
+                    onEvent?.invoke("provider $provider unavailable")
                 }
             }
-            val request = LocationRequest.Builder(
-                Priority.PRIORITY_HIGH_ACCURACY,
-                intervalMs,
-            )
-                .setMinUpdateIntervalMillis(intervalMs)
-                .setMinUpdateDistanceMeters(minimumDistanceM)
-                .build()
-            try {
-                client.requestLocationUpdates(request, callback, Looper.getMainLooper())
-            } catch (error: SecurityException) {
-                close(NavigationSource.Failure.PermissionDenied)
+            if (subscribed.isNotEmpty()) {
+                awaitClose {
+                    subscribed.forEach { (_, listener) -> manager.removeUpdates(listener) }
+                }
                 return@callbackFlow
             }
-            awaitClose { client.removeLocationUpdates(callback) }
-            return@callbackFlow
         }
 
-        // No usable Play services: drive the platform providers directly.
-        val manager = context.getSystemService(LocationManager::class.java)
-        if (manager == null) {
-            close(NavigationSource.Failure.Unavailable("LocationManager is unavailable"))
-            return@callbackFlow
-        }
-
-        // Subscribe to *every* enabled provider, not just GNSS.
-        //
-        // Preferring GPS and never falling back is what makes this look broken
-        // indoors: the GNSS subscription is valid and simply silent, while other
-        // apps on the same phone show a position because they also use the
-        // network/Wi-Fi sources. Whichever provider answers first wins, and the
-        // core decides usability from the accuracy it is given.
-        val providers = manager.getProviders(true).filter {
-            it == LocationManager.GPS_PROVIDER || it == LocationManager.NETWORK_PROVIDER
-        }
-        if (providers.isEmpty()) {
+        // Nothing usable from the platform: Play services is the last resort.
+        if (!fusedLocationAvailable()) {
             close(NavigationSource.Failure.ProviderDisabled)
             return@callbackFlow
         }
-        onEvent?.invoke("listening: ${providers.joinToString(",")}")
-
-        val subscribed = mutableListOf<Pair<String, LocationListener>>()
-        var firstFixLogged = false
-        for (provider in providers) {
-            val listener = object : LocationListener {
-                override fun onLocationChanged(location: Location) {
-                    if (!firstFixLogged) {
-                        firstFixLogged = true
-                        onEvent?.invoke("first fix from $provider")
-                    }
-                    trySend(location.toFix())
-                }
-
-                @Deprecated("Required on API < 30")
-                override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) =
-                    Unit
-
-                override fun onProviderEnabled(provider: String) = Unit
-
-                override fun onProviderDisabled(provider: String) = Unit
-            }
-            try {
-                manager.requestLocationUpdates(
-                    provider,
-                    intervalMs,
-                    minimumDistanceM,
-                    listener,
-                    Looper.getMainLooper(),
-                )
-                subscribed += provider to listener
-            } catch (error: SecurityException) {
-                close(NavigationSource.Failure.PermissionDenied)
-                return@callbackFlow
-            } catch (error: IllegalArgumentException) {
-                // Provider disappeared between listing and subscribing; keep the
-                // others rather than failing the whole session.
-                onEvent?.invoke("provider $provider unavailable")
+        onEvent?.invoke("listening: fused (play services)")
+        val client = LocationServices.getFusedLocationProviderClient(context)
+        val callback = object : LocationCallback() {
+            override fun onLocationResult(result: LocationResult) {
+                result.lastLocation?.let { trySend(it.toFix()) }
             }
         }
-        if (subscribed.isEmpty()) {
-            close(NavigationSource.Failure.Unavailable("no provider accepted the request"))
+        val request = LocationRequest.Builder(
+            Priority.PRIORITY_HIGH_ACCURACY,
+            intervalMs,
+        )
+            .setMinUpdateIntervalMillis(intervalMs)
+            .setMinUpdateDistanceMeters(minimumDistanceM)
+            .build()
+        try {
+            client.requestLocationUpdates(request, callback, Looper.getMainLooper())
+        } catch (error: SecurityException) {
+            close(NavigationSource.Failure.PermissionDenied)
             return@callbackFlow
         }
-        awaitClose {
-            subscribed.forEach { (_, listener) -> manager.removeUpdates(listener) }
-        }
+        awaitClose { client.removeLocationUpdates(callback) }
     }
 
     /**
