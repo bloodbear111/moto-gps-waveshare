@@ -520,6 +520,37 @@ amap coords GCJ-02 -> WGS84
 同时把「核心是否认为网关在线 / 路线请求是否在飞」直接显示在导航卡片上
 （`核心：网关 在线，路线请求中 是/否`），这类"核心静默什么都不做"的问题下次一眼可见。
 
+### 📱 高德定位真机第三轮：路线出来了，圆屏卡在「正在规划路线」（v0.4.1 已修）
+
+手机侧拿到真实路线（3.5 km / 9 分钟、「向西行驶92米右转」），但圆屏一直停在规划页。
+卡片上的计数把问题指出来了：**`已发送快照 3 次，路线窗口 24 次`**——比例是反的。
+
+协议规定（`shared/ble_protocol` 的 `validate(NavigationSnapshot)`）：
+
+```cpp
+if ((value.flags & NavigationHasRouteView) != 0U &&
+    (value.route_token == 0 || value.route_generation == 0)) {
+  return Error::OutOfRange;
+}
+```
+
+而 `NavigationSession.mirrorToDisplay()` 组装快照时**从来没有设置过 `routeToken`**
+（一直是默认 0）。于是：
+
+1. 路线拿到之前，`hasRouteView = false`，快照正常，圆屏显示「正在规划路线」——前 3 次成功；
+2. 路线拿到之后，`hasRouteView = true` 而 token 仍是 0 → 校验失败 → 编码器返回**空帧列表**，
+   `sendNavigationSnapshot` 返回 false → 手机侧计数器不再增长；
+3. 空帧在调用点与「没有内容要发」无法区分，所以这件事完全静默：圆屏一直挂着最后一帧
+   它收到的快照（state = planning）。
+
+修复：`routeToken` 在 `hasRouteView` 时由 `MotoProtocolCodec.routeToken(routeId)` 计算
+（与 `RouteGeometry` 用的是同一个 FNV token，两端必须一致）；该方法改为 `@JvmStatic`，
+因为组装快照的会话没有自己的 codec 实例。
+
+并在**端上自检**里加了一条回归（`snapshot:route-token-required`）：
+带 route-view 标志但 token 为 0 的快照必须被编码器拒绝、补上 token 后必须被接受。
+这样这条协议约束以后不靠真机才能发现。
+
 阶段五（前台服务与锁屏导航）、阶段六（地图下载与可选音乐控制）、
 阶段七（完整测试与交付）、阶段八（Fork 与 Release）见
 [README.md](README.md) 与 [UPSTREAM_CONTRIBUTION.md](UPSTREAM_CONTRIBUTION.md)。

@@ -24,8 +24,8 @@ android {
         applicationId = "io.github.bloodbear111.motogps"
         minSdk = 26
         targetSdk = 36
-        versionCode = 10
-        versionName = "0.4.0-route-request-fix"
+        versionCode = 11
+        versionName = "0.4.1-snapshot-route-token"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

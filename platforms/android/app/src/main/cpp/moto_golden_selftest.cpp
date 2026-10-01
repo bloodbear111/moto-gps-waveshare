@@ -165,7 +165,34 @@ std::vector<GoldenCheck> RunGoldenSelfTest() {
             std::string("expected 0x29B1 actual ") + buffer);
     }
 
-    // 2. GATT identifiers are part of the contract and must not drift.
+    // 2. A snapshot that claims a route view must carry a route token. The
+    //    encoder answers such a message with an error and therefore no frames,
+    //    which the phone cannot tell apart from "nothing to send" - it kept
+    //    sending snapshots until the route arrived and then went silent, leaving
+    //    the round display on "planning route" while the phone had a full route.
+    {
+        moto::ble::NavigationSnapshot snapshot;
+        snapshot.flags = moto::ble::NavigationHasRouteView;
+        snapshot.route_generation = 1;
+        snapshot.route_token = 0;
+        const bool refused_without_token =
+            !moto::ble::encode_message(moto::ble::Message{snapshot}).ok();
+
+        snapshot.route_token =
+            moto::ble::route_token(std::string_view("moto-route-1"));
+        const bool accepted_with_token =
+            moto::ble::encode_message(moto::ble::Message{snapshot}).ok();
+
+        add("snapshot:route-token-required",
+            refused_without_token && accepted_with_token,
+            refused_without_token
+                ? (accepted_with_token
+                       ? "tokenless route view refused, token accepted"
+                       : "tokenless refused but a token was still rejected")
+                : "tokenless route view was accepted");
+    }
+
+    // 3. GATT identifiers are part of the contract and must not drift.
     {
         const bool ok =
             std::string(moto::ble::kServiceUuid) ==

@@ -40,6 +40,21 @@ class MotoProtocolCodec(maximumFrameSize: Int = DEFAULT_MAXIMUM_FRAME_SIZE) :
             )
 
         private const val ATT_HEADER_BYTES = 3
+
+        /**
+         * FNV token of a route id, as the shared codec computes it.
+         *
+         * Static on purpose: a navigation snapshot has to carry this token, and
+         * the session that assembles snapshots has no codec instance of its own.
+         * The value is a pure function of the route id bytes, so there is
+         * nothing per-instance to be gained by making it a member.
+         */
+        @JvmStatic
+        fun routeToken(routeId: String): Int =
+            nativeRouteToken(routeId.toByteArray(Charsets.UTF_8))
+
+        @JvmStatic
+        private external fun nativeRouteToken(routeIdUtf8: ByteArray): Int
     }
 
     private var handle: Long = 0
@@ -150,9 +165,6 @@ class MotoProtocolCodec(maximumFrameSize: Int = DEFAULT_MAXIMUM_FRAME_SIZE) :
         }
     }
 
-    fun routeToken(routeId: String): Int =
-        nativeRouteToken(routeId.toByteArray(Charsets.UTF_8))
-
     /**
      * Runs the reviewed golden vectors from
      * `shared/protocol/fixtures/ble-navigation-v1.golden.txt`, compiled into the
@@ -241,7 +253,6 @@ class MotoProtocolCodec(maximumFrameSize: Int = DEFAULT_MAXIMUM_FRAME_SIZE) :
         out: MotoInboundBuffer,
     ): Int
 
-    private external fun nativeRouteToken(routeIdUtf8: ByteArray): Int
     private external fun nativeRunGoldenSelfTest(): Array<String>
     private external fun nativeUuidStrings(): Array<String>
     private external fun nativeEnumValues(): IntArray

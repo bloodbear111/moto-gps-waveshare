@@ -5,6 +5,7 @@ import io.github.bloodbear111.motogps.gateway.GatewayRouteMapper
 import io.github.bloodbear111.motogps.protocol.MotoSnapshotInput
 import io.github.bloodbear111.motogps.protocol.NavigationState
 import io.github.bloodbear111.motogps.protocol.NetworkState
+import io.github.bloodbear111.motogps.protocol.MotoProtocolCodec
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -266,6 +267,17 @@ class NavigationSession(
             routeRequestInFlight = snapshot.routeRequestInFlight
             trafficRequestInFlight = snapshot.trafficRequestInFlight
             hasRouteView = snapshot.hasRouteView
+            // The protocol rejects a snapshot that sets the route-view flag
+            // without a route token, and a rejected encode is an empty frame
+            // list - indistinguishable from "nothing to send" at the call site.
+            // Leaving this at its default 0 meant every snapshot after the route
+            // arrived was dropped, so the round display kept the last one it had
+            // received (state = planning) and sat on "正在规划路线" forever.
+            routeToken = if (snapshot.hasRouteView) {
+                MotoProtocolCodec.routeToken(snapshot.routeId)
+            } else {
+                0
+            }
             routeGeneration = snapshot.routeGeneration
             maneuverId = snapshot.maneuverId
             distanceToManeuverM = snapshot.distanceToManeuverM.toInt()
