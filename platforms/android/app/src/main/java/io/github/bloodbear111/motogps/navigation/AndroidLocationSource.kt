@@ -5,6 +5,7 @@ import android.content.Context
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.os.Bundle
 import android.os.Looper
 import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailability
@@ -37,6 +38,8 @@ class AndroidLocationSource(
     private val context: Context,
     private val intervalMs: Long = DEFAULT_INTERVAL_MS,
     private val minimumDistanceM: Float = 0f,
+    /** Bring-up visibility: which providers were subscribed and which answered. */
+    private val onEvent: ((String) -> Unit)? = null,
 ) : NavigationSource {
 
     companion object {
@@ -79,50 +82,74 @@ class AndroidLocationSource(
             return@callbackFlow
         }
 
-        // No usable Play services: drive the platform provider directly.
+        // No usable Play services: drive the platform providers directly.
         val manager = context.getSystemService(LocationManager::class.java)
         if (manager == null) {
             close(NavigationSource.Failure.Unavailable("LocationManager is unavailable"))
             return@callbackFlow
         }
-        val provider = chooseProvider(manager)
-        if (provider == null) {
+
+        // Subscribe to *every* enabled provider, not just GNSS.
+        //
+        // Preferring GPS and never falling back is what makes this look broken
+        // indoors: the GNSS subscription is valid and simply silent, while other
+        // apps on the same phone show a position because they also use the
+        // network/Wi-Fi sources. Whichever provider answers first wins, and the
+        // core decides usability from the accuracy it is given.
+        val providers = manager.getProviders(true).filter {
+            it == LocationManager.GPS_PROVIDER || it == LocationManager.NETWORK_PROVIDER
+        }
+        if (providers.isEmpty()) {
             close(NavigationSource.Failure.ProviderDisabled)
             return@callbackFlow
         }
+        onEvent?.invoke("listening: ${providers.joinToString(",")}")
 
-        val listener = LocationListener { location -> trySend(location.toFix()) }
-        try {
-            manager.requestLocationUpdates(
-                provider,
-                intervalMs,
-                minimumDistanceM,
-                listener,
-                Looper.getMainLooper(),
-            )
-        } catch (error: SecurityException) {
-            close(NavigationSource.Failure.PermissionDenied)
-            return@callbackFlow
-        } catch (error: IllegalArgumentException) {
-            close(
-                NavigationSource.Failure.Unavailable(
-                    error.message ?: "the provider rejected the request",
-                ),
-            )
+        val subscribed = mutableListOf<Pair<String, LocationListener>>()
+        var firstFixLogged = false
+        for (provider in providers) {
+            val listener = object : LocationListener {
+                override fun onLocationChanged(location: Location) {
+                    if (!firstFixLogged) {
+                        firstFixLogged = true
+                        onEvent?.invoke("first fix from $provider")
+                    }
+                    trySend(location.toFix())
+                }
+
+                @Deprecated("Required on API < 30")
+                override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) =
+                    Unit
+
+                override fun onProviderEnabled(provider: String) = Unit
+
+                override fun onProviderDisabled(provider: String) = Unit
+            }
+            try {
+                manager.requestLocationUpdates(
+                    provider,
+                    intervalMs,
+                    minimumDistanceM,
+                    listener,
+                    Looper.getMainLooper(),
+                )
+                subscribed += provider to listener
+            } catch (error: SecurityException) {
+                close(NavigationSource.Failure.PermissionDenied)
+                return@callbackFlow
+            } catch (error: IllegalArgumentException) {
+                // Provider disappeared between listing and subscribing; keep the
+                // others rather than failing the whole session.
+                onEvent?.invoke("provider $provider unavailable")
+            }
+        }
+        if (subscribed.isEmpty()) {
+            close(NavigationSource.Failure.Unavailable("no provider accepted the request"))
             return@callbackFlow
         }
-        awaitClose { manager.removeUpdates(listener) }
-    }
-
-    /** Prefers GNSS; falls back to network only when GNSS is switched off. */
-    private fun chooseProvider(manager: LocationManager): String? = when {
-        manager.isProviderEnabled(LocationManager.GPS_PROVIDER) ->
-            LocationManager.GPS_PROVIDER
-
-        manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) ->
-            LocationManager.NETWORK_PROVIDER
-
-        else -> null
+        awaitClose {
+            subscribed.forEach { (_, listener) -> manager.removeUpdates(listener) }
+        }
     }
 
     /**

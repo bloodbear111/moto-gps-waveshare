@@ -43,6 +43,7 @@ fun NavScreen(
     session: NavigationSession.Snapshot,
     hasPreciseLocation: Boolean,
     approximateLocationOnly: Boolean,
+    locationEvent: String?,
     onSearch: (String) -> Unit,
     onStart: (GatewayPlace) -> Unit,
     onStop: () -> Unit,
@@ -79,6 +80,7 @@ fun NavScreen(
                 session = session,
                 hasPreciseLocation = hasPreciseLocation,
                 approximateLocationOnly = approximateLocationOnly,
+                locationEvent = locationEvent,
                 onStop = onStop,
             )
         }
@@ -153,6 +155,7 @@ private fun ActiveNavigationCard(
     session: NavigationSession.Snapshot,
     hasPreciseLocation: Boolean,
     approximateLocationOnly: Boolean,
+    locationEvent: String?,
     onStop: () -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -212,6 +215,12 @@ private fun ActiveNavigationCard(
                 Text(
                     text = it,
                     color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            locationEvent?.let {
+                Text(
+                    text = stringResource(R.string.nav_location_event, it),
                     style = MaterialTheme.typography.bodySmall,
                 )
             }

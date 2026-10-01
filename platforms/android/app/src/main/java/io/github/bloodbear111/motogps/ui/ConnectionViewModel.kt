@@ -77,10 +77,17 @@ class ConnectionViewModel(application: Application) : AndroidViewModel(applicati
         gatewayBaseUrl = { _gatewayAddress.value },
         clock = { SystemClock.elapsedRealtime() },
     )
+    /** Which providers were subscribed and which answered; bring-up visibility. */
+    private val _locationEvent = MutableStateFlow<String?>(null)
+    val locationEvent: StateFlow<String?> = _locationEvent.asStateFlow()
+
     private val navSession = NavigationSession(
         core = navCore,
         executor = navExecutor,
-        location = AndroidLocationSource(application),
+        location = AndroidLocationSource(
+            context = application,
+            onEvent = { _locationEvent.value = it },
+        ),
         display = central,
         scope = viewModelScope,
     )
