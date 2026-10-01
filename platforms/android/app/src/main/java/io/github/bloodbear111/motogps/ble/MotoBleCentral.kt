@@ -76,7 +76,7 @@ class MotoBleCentral(
     var onLinkStale: (() -> Unit)? = null
 
     private val codecLock = Any()
-    private val queue = GattOperationQueue(scope)
+    private val queue = GattOperationQueue(scope, onOperationFinished = { pump() })
 
     private val _state =
         MutableStateFlow<MotoBleConnectionState>(MotoBleConnectionState.Idle)

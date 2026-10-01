@@ -23,6 +23,14 @@ import java.util.concurrent.atomic.AtomicInteger
 class GattOperationQueue(
     private val scope: CoroutineScope,
     private val defaultTimeoutMs: Long = DEFAULT_TIMEOUT_MS,
+    /**
+     * Invoked after every request finishes, whichever way it finished. The write
+     * pump needs it because a call site inside the queue worker (the handshake
+     * frame, for one) enqueues its bytes while `isBusy` is still true: without a
+     * nudge on completion nothing would ever re-offer those bytes and the frame
+     * would sit in the FIFO forever.
+     */
+    private val onOperationFinished: (() -> Unit)? = null,
 ) {
 
     /** Result of one queued GATT request. */
@@ -65,6 +73,7 @@ class GattOperationQueue(
                 } finally {
                     inFlight = null
                     queuedCount.decrementAndGet()
+                    onOperationFinished?.invoke()
                 }
             }
         }
