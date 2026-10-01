@@ -6,6 +6,7 @@ import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Bundle
+import android.os.SystemClock
 import android.os.Looper
 import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailability
@@ -68,18 +69,40 @@ class AndroidLocationSource(
         // exactly what "no fix ever arrives" looked like here. The platform
         // providers are the ones a domestic phone actually fills.
         val manager = context.getSystemService(LocationManager::class.java)
-        val providers = manager
-            ?.getProviders(true)
-            ?.filter {
-                it == LocationManager.GPS_PROVIDER || it == LocationManager.NETWORK_PROVIDER
-            }
-            .orEmpty()
+        val providers = buildList {
+            manager?.getProviders(true)
+                ?.filterTo(this) {
+                    it == LocationManager.GPS_PROVIDER || it == LocationManager.NETWORK_PROVIDER
+                }
+            // The passive provider replays fixes other apps requested. It cannot
+            // be the only source (it is silent when nothing else is locating), but
+            // on a phone where a map app is working it is a real source, and it
+            // makes "someone is getting fixes and we are not" impossible.
+            add(LocationManager.PASSIVE_PROVIDER)
+        }
 
         if (providers.isNotEmpty()) {
             onEvent?.invoke("listening: ${providers.joinToString(",")}")
             var firstFixLogged = false
             val subscribed = mutableListOf<Pair<String, LocationListener>>()
             for (provider in providers) {
+                // What the platform already knows, before waiting for a callback.
+                // A null here plus no callback means the provider itself has
+                // nothing, which is a different fault from a subscription that
+                // was accepted and then went quiet.
+                val lastKnown = runCatching { manager.getLastKnownLocation(provider) }
+                    .getOrNull()
+                onEvent?.invoke(
+                    "lastKnown[$provider]=" + (
+                        lastKnown?.let {
+                            val ageS = (SystemClock.elapsedRealtime() -
+                                it.elapsedRealtimeNanos / 1_000_000L) / 1_000L
+                            "age=${ageS}s acc=${it.accuracy}"
+                        } ?: "none"
+                        ),
+                )
+                lastKnown?.let { trySend(it.toFix()) }
+
                 val listener = object : LocationListener {
                     override fun onLocationChanged(location: Location) {
                         if (!firstFixLogged) {
