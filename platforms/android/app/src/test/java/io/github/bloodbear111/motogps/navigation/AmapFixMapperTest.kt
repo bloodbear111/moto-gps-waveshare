@@ -113,6 +113,38 @@ class AmapFixMapperTest {
     }
 
     @Test
+    fun `a rejected key is reported with the values the console needs`() {
+        // Trimmed from the real device: the SDK repeats this on every callback.
+        val verbose = "auth fail:INVALID_USER_SCODE#SHA1AndPackage#" +
+            "6E:16:34:4A:CA:72:68:5D:68:BF:1B:E9:32:9A:0B:B9:C0:81:DB:F7" +
+            ":io.github.bloodbear111.motogps#gsid#0330350292221790878#csid#1d4777"
+
+        val message = describeAmapError(8, verbose)
+
+        assertTrue(message.contains("6E:16:34:4A:CA:72:68:5D:68:BF:1B:E9:32:9A:0B:B9:C0:81:DB:F7"), message)
+        assertTrue(message.contains("io.github.bloodbear111.motogps"), message)
+        assertTrue(message.contains("Android"), message)
+        // The raw dump is ~600 characters; this has to stay short enough to read
+        // on the card.
+        assertTrue(message.length < 260, "should not repeat the raw SDK dump: $message")
+    }
+
+    @Test
+    fun `a web service key is called out as the wrong platform`() {
+        val message = describeAmapError(8, "auth fail:USERKEY_PLAT_NOMATCH")
+
+        assertTrue(message.contains("Web 服务"), message)
+    }
+
+    @Test
+    fun `an unknown error keeps the sdk text instead of inventing a cause`() {
+        val message = describeAmapError(13, "定位失败")
+
+        assertTrue(message.contains("13"), message)
+        assertTrue(message.contains("定位失败"), message)
+    }
+
+    @Test
     fun `a mock location is refused`() {
         val mapper = AmapFixMapper(neverCalled)
 

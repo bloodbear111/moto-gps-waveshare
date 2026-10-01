@@ -24,8 +24,8 @@ android {
         applicationId = "io.github.bloodbear111.motogps"
         minSdk = 26
         targetSdk = 36
-        versionCode = 8
-        versionName = "0.3.1-scrollable-screens"
+        versionCode = 9
+        versionName = "0.3.2-amap-key-diagnostics"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

@@ -95,12 +95,22 @@ class AmapLocationSource(
 
         var conversionsLogged = false
         var firstFixLogged = false
+        var lastRejection: String? = null
 
         val listener = AMapLocationListener { location ->
             val readout = location.toReadout()
             when (val outcome = mapper.map(readout, SystemClock.elapsedRealtime())) {
-                is AmapFixOutcome.Rejected -> onEvent?.invoke("amap rejected: ${outcome.reason}")
+                is AmapFixOutcome.Rejected -> {
+                    // A rejected key fails on every callback; printing each one
+                    // buries the rest of the card, and the fix does not change
+                    // between them.
+                    if (outcome.reason != lastRejection) {
+                        lastRejection = outcome.reason
+                        onEvent?.invoke("amap rejected: ${outcome.reason}")
+                    }
+                }
                 is AmapFixOutcome.Fix -> {
+                    lastRejection = null
                     if (!firstFixLogged) {
                         firstFixLogged = true
                         onEvent?.invoke("amap first fix " + describeAmapFix(readout))

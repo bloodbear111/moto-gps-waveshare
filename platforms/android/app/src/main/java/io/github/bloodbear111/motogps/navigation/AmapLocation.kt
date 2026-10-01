@@ -50,8 +50,7 @@ class AmapFixMapper(
     fun map(readout: AmapReadout, monotonicNowMs: Long): AmapFixOutcome {
         if (readout.errorCode != 0) {
             return AmapFixOutcome.Rejected(
-                "AMap error ${readout.errorCode}: ${readout.errorInfo.ifBlank { "unknown" }}" +
-                    amapErrorHint(readout.errorCode),
+                describeAmapError(readout.errorCode, readout.errorInfo),
             )
         }
         if (readout.isMock) {
@@ -106,6 +105,41 @@ class AmapFixMapper(
             converted = converted,
         )
     }
+}
+
+/**
+ * Turns an AMap error into one line that names the fix.
+ *
+ * The SDK's own text for a rejected key is several hundred characters of
+ * `auth fail:INVALID_USER_SCODE#SHA1AndPackage#…#gsid#…#csid#…`, repeated on
+ * every callback. The useful part is the SHA1 and package the app reported, so
+ * that is what gets shown - those two values are exactly what has to be bound to
+ * the key in the AMap console, and the debug and release certificates have
+ * different fingerprints.
+ */
+fun describeAmapError(errorCode: Int, errorInfo: String): String {
+    val info = errorInfo.ifBlank { "unknown" }
+
+    if (info.contains("INVALID_USER_SCODE")) {
+        // The SDK writes `SHA1AndPackage#<sha1>:<package>#…` - the two values are
+        // separated by a colon, and the SHA1 itself is full of them.
+        val reported = Regex("SHA1AndPackage#([0-9A-Fa-f:]+)[:#]([A-Za-z0-9._]+)")
+            .find(info)
+            ?.let { "App 上报 SHA1=${it.groupValues[1]} 包名=${it.groupValues[2]}。" }
+            .orEmpty()
+        return "Key 校验失败：控制台里这个 Key 绑定的包名/SHA1 与当前安装包不符。" +
+            reported +
+            "请把该 Key 的「Android 平台」绑定改成上面这一组（debug 包与发布包指纹不同）。"
+    }
+    if (info.contains("USERKEY_PLAT_NOMATCH")) {
+        return "Key 平台类型不匹配：这不是 Android 平台 Key，" +
+            "网关用的 Web 服务 Key 不能给 App 使用。"
+    }
+    if (info.contains("INVALID_USER_KEY")) {
+        return "Key 无效或已被删除，请在高德控制台确认。"
+    }
+
+    return "AMap error $errorCode: $info" + amapErrorHint(errorCode)
 }
 
 /**

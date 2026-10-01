@@ -471,6 +471,26 @@ APK 内已确认包含 `lib/arm64-v8a/libapssdk.so` 与 `lib/armeabi-v7a/libapss
 问题的根因；`LazyColumn` 外面套 `verticalScroll` 还会因无限高度约束崩溃，所以统一改成
 单列表 + `contentPadding`。
 
+### 📱 高德定位真机首轮结果（v0.3.2）
+
+真机上高德 SDK 已成功启动并打到高德服务器，返回 **error 8 /
+`INVALID_USER_SCODE`**，即「Key 绑定的包名与 SHA1 与当前安装包不一致」，
+SDK 同时把 App 实际上报的值写在错误里（截图已确认）：
+
+```text
+SHA1    6E:16:34:4A:CA:72:68:5D:68:BF:1B:E9:32:9A:0B:B9:C0:81:DB:F7   （debug 包）
+包名     io.github.bloodbear111.motogps
+```
+
+这说明链路是通的（能联网、能鉴权、能拿到明确的错误码），剩下的是**控制台绑定**问题，
+属于用户侧操作。v0.3.2 针对这类错误做了两件事：
+
+1. 把几百字符的 `auth fail:…` 原文压缩成一行，并把上面这组 SHA1/包名直接显示在卡片上
+   （`describeAmapError`），同时在单测里用真机原文做了回归；
+2. 同一条错误不再每次回调都重复刷屏（只在该错误变化时打印一次）。
+
+仍未验证：绑定修正后能否真正出 fix。
+
 阶段五（前台服务与锁屏导航）、阶段六（地图下载与可选音乐控制）、
 阶段七（完整测试与交付）、阶段八（Fork 与 Release）见
 [README.md](README.md) 与 [UPSTREAM_CONTRIBUTION.md](UPSTREAM_CONTRIBUTION.md)。
