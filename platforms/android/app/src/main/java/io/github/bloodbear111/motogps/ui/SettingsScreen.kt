@@ -18,6 +18,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import io.github.bloodbear111.motogps.BuildConfig
 import io.github.bloodbear111.motogps.R
 
 @Composable
@@ -119,6 +120,12 @@ fun SettingsScreen(
                 Button(onClick = onRequestLocation) {
                     Text(stringResource(R.string.request_location))
                 }
+                // Which build is installed, so test packages can be told apart
+                // without digging through the APK.
+                Text(
+                    text = stringResource(R.string.app_version, BuildConfig.VERSION_NAME),
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
         }
     }

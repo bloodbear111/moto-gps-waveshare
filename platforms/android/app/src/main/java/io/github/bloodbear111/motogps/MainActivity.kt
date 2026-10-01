@@ -69,8 +69,8 @@ class MainActivity : ComponentActivity() {
                     val destinationError by
                         viewModel.destinationError.collectAsStateWithLifecycle()
                     val navigation by viewModel.navigation.collectAsStateWithLifecycle()
-                    val locationEvent by
-                        viewModel.locationEvent.collectAsStateWithLifecycle()
+                    val locationEvents by
+                        viewModel.locationEvents.collectAsStateWithLifecycle()
 
                     MotoGpsApp(
                         connectionState = connectionState,
@@ -84,7 +84,7 @@ class MainActivity : ComponentActivity() {
                         searching = searching,
                         destinationError = destinationError,
                         navigation = navigation,
-                        locationEvent = locationEvent,
+                        locationEvents = locationEvents,
                         hasBluetoothPermission = bluetoothPermissionGranted,
                         bluetoothEnabled = bluetoothEnabled,
                         bluetoothLeSupported = bluetoothLeSupported,

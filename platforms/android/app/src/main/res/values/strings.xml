@@ -81,5 +81,6 @@
     <string name="nav_fix_coarse_only">只给了模糊位置：导航需要「精确位置」，请在系统设置里改成精确</string>
     <string name="nav_fix_none_yet">还没收到任何定位（已收到 %1$d 次）。到窗边或室外再等一会儿；导航必须拿到定位后才会规划路线</string>
     <string name="nav_fix_not_usable">定位不可用或已过期（已收到 %1$d 次），正在等待新的定位</string>
-    <string name="nav_location_event">定位源：%1$s</string>
+    <string name="nav_location_event">定位源</string>
+    <string name="app_version">版本：%1$s</string>
 </resources>

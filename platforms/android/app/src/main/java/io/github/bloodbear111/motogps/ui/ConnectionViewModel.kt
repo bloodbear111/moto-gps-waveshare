@@ -77,16 +77,22 @@ class ConnectionViewModel(application: Application) : AndroidViewModel(applicati
         gatewayBaseUrl = { _gatewayAddress.value },
         clock = { SystemClock.elapsedRealtime() },
     )
-    /** Which providers were subscribed and which answered; bring-up visibility. */
-    private val _locationEvent = MutableStateFlow<String?>(null)
-    val locationEvent: StateFlow<String?> = _locationEvent.asStateFlow()
+    /**
+     * Which providers were subscribed and which answered; bring-up visibility.
+     * Kept as a list because only the newest line is useless: the interesting
+     * part is the set of lastKnown entries together.
+     */
+    private val _locationEvents = MutableStateFlow<List<String>>(emptyList())
+    val locationEvents: StateFlow<List<String>> = _locationEvents.asStateFlow()
 
     private val navSession = NavigationSession(
         core = navCore,
         executor = navExecutor,
         location = AndroidLocationSource(
             context = application,
-            onEvent = { _locationEvent.value = it },
+            onEvent = { event ->
+                _locationEvents.value = (_locationEvents.value + event).takeLast(6)
+            },
         ),
         display = central,
         scope = viewModelScope,

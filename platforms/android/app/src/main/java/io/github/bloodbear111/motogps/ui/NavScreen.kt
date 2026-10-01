@@ -43,7 +43,7 @@ fun NavScreen(
     session: NavigationSession.Snapshot,
     hasPreciseLocation: Boolean,
     approximateLocationOnly: Boolean,
-    locationEvent: String?,
+    locationEvents: List<String>,
     onSearch: (String) -> Unit,
     onStart: (GatewayPlace) -> Unit,
     onStop: () -> Unit,
@@ -80,7 +80,7 @@ fun NavScreen(
                 session = session,
                 hasPreciseLocation = hasPreciseLocation,
                 approximateLocationOnly = approximateLocationOnly,
-                locationEvent = locationEvent,
+                locationEvents = locationEvents,
                 onStop = onStop,
             )
         }
@@ -155,7 +155,7 @@ private fun ActiveNavigationCard(
     session: NavigationSession.Snapshot,
     hasPreciseLocation: Boolean,
     approximateLocationOnly: Boolean,
-    locationEvent: String?,
+    locationEvents: List<String>,
     onStop: () -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -218,11 +218,17 @@ private fun ActiveNavigationCard(
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
-            locationEvent?.let {
+            if (locationEvents.isNotEmpty()) {
                 Text(
-                    text = stringResource(R.string.nav_location_event, it),
+                    text = stringResource(R.string.nav_location_event),
                     style = MaterialTheme.typography.bodySmall,
                 )
+                locationEvents.forEach { event ->
+                    Text(
+                        text = event,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
             }
             OutlinedButton(onClick = onStop) {
                 Text(stringResource(R.string.nav_stop))

@@ -82,6 +82,11 @@ class AndroidLocationSource(
         }
 
         if (providers.isNotEmpty()) {
+            // The master switch is the one thing the app cannot work around, so
+            // report it explicitly rather than leaving "no fix" ambiguous.
+            val enabled = androidx.core.location.LocationManagerCompat
+                .isLocationEnabled(manager)
+            onEvent?.invoke("locationEnabled=$enabled")
             onEvent?.invoke("listening: ${providers.joinToString(",")}")
             var firstFixLogged = false
             val subscribed = mutableListOf<Pair<String, LocationListener>>()
