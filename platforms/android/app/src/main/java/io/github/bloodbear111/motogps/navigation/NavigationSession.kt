@@ -103,6 +103,19 @@ class NavigationSession(
         drain(core.setNetworkState(if (connected) NetworkState.Online else NetworkState.Offline))
     }
 
+    /**
+     * Drops the location subscription and subscribes again.
+     *
+     * An OEM location client can accept a request and then never deliver
+     * anything; re-registering is the recovery the rider can trigger without
+     * rebooting the phone. The fix counter is deliberately *not* reset: it is
+     * the evidence of whether the retry worked.
+     */
+    fun restartLocation() {
+        if (!_state.value.active) return
+        startFixLoop()
+    }
+
     private fun startFixLoop() {
         fixJob?.cancel()
         fixJob = scope.launch {

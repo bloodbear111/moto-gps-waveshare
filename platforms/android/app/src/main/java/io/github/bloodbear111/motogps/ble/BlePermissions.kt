@@ -62,6 +62,16 @@ object BlePermissions {
         granted(context, Manifest.permission.ACCESS_COARSE_LOCATION) &&
             !granted(context, Manifest.permission.ACCESS_FINE_LOCATION)
 
+    /**
+     * Raw grant state for the on-screen bring-up diagnostics. "Granted" and
+     * "granted precisely" are different answers: an approximate grant is
+     * delivered as a fix and must be refused by name rather than shown as a
+     * position the rider could act on.
+     */
+    fun describeLocationPermission(context: Context): String =
+        "fine=" + granted(context, Manifest.permission.ACCESS_FINE_LOCATION) +
+            " coarse=" + granted(context, Manifest.permission.ACCESS_COARSE_LOCATION)
+
     fun isBluetoothEnabled(context: Context): Boolean {
         val manager = context.getSystemService(BluetoothManager::class.java)
         return manager?.adapter?.isEnabled == true

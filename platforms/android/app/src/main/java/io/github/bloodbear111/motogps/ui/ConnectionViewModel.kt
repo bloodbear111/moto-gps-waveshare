@@ -91,7 +91,9 @@ class ConnectionViewModel(application: Application) : AndroidViewModel(applicati
         location = AndroidLocationSource(
             context = application,
             onEvent = { event ->
-                _locationEvents.value = (_locationEvents.value + event).takeLast(6)
+                // Six lines was not enough to see a whole bring-up: the permission
+                // and app-op lines pushed the provider answers off the card.
+                _locationEvents.value = (_locationEvents.value + event).takeLast(20)
             },
         ),
         display = central,
@@ -142,6 +144,12 @@ class ConnectionViewModel(application: Application) : AndroidViewModel(applicati
 
     fun stopNavigation() {
         navSession.stop()
+    }
+
+    /** Re-registers the location client and clears the diagnostics for a fresh read. */
+    fun restartLocation() {
+        _locationEvents.value = emptyList()
+        navSession.restartLocation()
     }
 
     /** The display link is the session's network state; keep it in step. */

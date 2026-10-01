@@ -316,16 +316,53 @@ lint: No issues found.
 仍是原始端点）、路线 id 不符拒绝、几何变化拒绝、未配置/不可达/服务错误的可重试性
 分类、未知命令不阻塞核心；以及定位可用性、陈旧边界、NaN 精度、非法坐标的**区分**。
 
-### ⬜ 本阶段尚未完成
+### ✅ 已实现：导航会话与界面（第三片）
 
-1. **导航会话组装**：把 `NavigationSource` + `NavCommandExecutor` + `NavCore` +
-   BLE 串成一个会话对象，处理重算、路况节流与状态补发。
-2. **界面**：目的地搜索、位置偏置、候选路线与时间/距离预览、开始/结束导航。
-3. **演示模式**：明确标注为模拟；真实定位或网络失败时**不自动切换**到假数据。
-4. **网关联调**：需要用户提供可公网访问的 HTTPS 网关地址；目前所有验证都用
-   schema 符合的样例与假传输，**没有对真实网关发过请求**。
-5. **真机定位验证**：`AndroidLocationSource` 的两条分支都**没有在真机上跑过**，
-   包括 Xiaomi 14 Pro 上是否有可用 Play 服务、息屏后定位是否继续。
+| 内容 | 位置 |
+| --- | --- |
+| 会话组装 | `navigation/NavigationSession.kt`：`NavigationSource` + `NavCommandExecutor` + `NavCore` + BLE 显示 |
+| 界面 | `ui/NavScreen.kt`：网关状态、目的地搜索、开始/结束、实时卡片（速度、剩余距离/时间、下一步、偏航、定位质量、快照/路线窗口计数） |
+| 重新协商 | 位置重试（`restartLocation`）、系统定位设置、应用权限三个入口，直接放在无定位时的证据旁边 |
+
+### 📱 真机通过
+
+| 项目 | 状态 |
+| --- | --- |
+| BLE 连接圆屏（1.85B，`android/community-port-stage1`） | 📱 通过。固件日志 `link encryption ready: status=0`、TX notify 已开、MTU 185 |
+| 网关（阿里云香港 ECS，`www.bloodbear.xin`） | 📱 通过。真实 POI 搜索与真实路线（3183 m、GCJ-02、中文诱导、路况） |
+| **定位取得 fix** | ⬜ **未通过**。手机侧 `已收到 0 次`，圆屏停在「请在手机选择目的地」 |
+
+### ⬜ 定位真机问题（进行中，见 v0.2.2 诊断构建）
+
+现象：权限已授予、系统「定位获取记录」里有本应用的访问记录、`locationEnabled=true`、
+`listening: network,gps,passive`，但 **一次回调都没有**（`lastKnown[*]=none`，
+`已收到 0 次`），因此核心拿不到 fix，也就不会去规划路线。
+
+已排除的假设：权限未授予（已授予）、模糊定位（已授予精确）、定位总开关关闭（为 true）、
+订阅顺序问题（平台 provider 已在 Play services 之前）、只订阅 GNSS（已订阅全部 provider
++ passive）、Android 12+ 的 `getLastKnownLocation` 语义（已逐 provider 读取）。
+
+`v0.2.2-location-diagnostics` 把这条链路的每一段都变成可见证据，一次收集完：
+
+| 诊断行 | 区分什么 |
+| --- | --- |
+| `perm fine=… coarse=…` | 精确 / 模糊授权 |
+| `appOps fine=… coarse=…` | MIUI/HyperOS 在授权背后把 app-op 改成 ignore 的情况 |
+| `providers …` / `listening …` | 平台认为哪些 provider 可用 |
+| `lastKnown[…]` / `getCurrentLocation[…]` | 「订阅被静默丢弃」与「定位服务本身没有数据」 |
+| `satellites visible=… used=…` | 看不见卫星（室内）与看得见却定不上（接收机/系统） |
+| `no callback in 20s` + `silent: …` | 订阅确实存在但被静默；随后自动掉线重订阅一次 |
+
+同时把 API 31+ 的订阅改成显式 `android.location.LocationRequest`
+（`QUALITY_HIGH_ACCURACY`，network provider 用 balanced；passive 仍用低功耗旧接口，
+不抬高别人已申请的精度），并加了「重新定位 / 系统定位设置 / 应用权限」三个入口。
+
+### ⬜ 仍未完成
+
+1. **演示模式**：明确标注为模拟；真实定位或网络失败时**不自动切换**到假数据。
+2. **前台服务**（阶段五）：目前导航只在 App 前台运行，没有 `location` /
+   `connectedDevice` 前台服务与持续通知，息屏锁屏行为**未验证**。
+3. **定位真机通过**：需要用户按上面的诊断输出确认是设备/系统侧还是应用侧。
 
 阶段五（前台服务与锁屏导航）、阶段六（地图下载与可选音乐控制）、
 阶段七（完整测试与交付）、阶段八（Fork 与 Release）见

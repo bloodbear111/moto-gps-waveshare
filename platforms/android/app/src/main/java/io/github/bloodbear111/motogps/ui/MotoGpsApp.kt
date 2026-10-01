@@ -61,6 +61,9 @@ fun MotoGpsApp(
     onSearchDestination: (String) -> Unit,
     onStartNavigation: (GatewayPlace) -> Unit,
     onStopNavigation: () -> Unit,
+    onRestartLocation: () -> Unit,
+    onOpenLocationSettings: () -> Unit,
+    onOpenAppSettings: () -> Unit,
 ) {
     var tab by remember { mutableIntStateOf(0) }
     val titleRes = listOf(
@@ -129,6 +132,9 @@ fun MotoGpsApp(
                 onSearch = onSearchDestination,
                 onStart = onStartNavigation,
                 onStop = onStopNavigation,
+                onRestartLocation = onRestartLocation,
+                onOpenLocationSettings = onOpenLocationSettings,
+                onOpenAppSettings = onOpenAppSettings,
             )
 
             2 -> SelfTestScreen(

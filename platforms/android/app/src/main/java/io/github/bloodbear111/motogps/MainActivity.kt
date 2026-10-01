@@ -1,6 +1,7 @@
 package io.github.bloodbear111.motogps
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
@@ -121,6 +122,18 @@ class MainActivity : ComponentActivity() {
                             }
                         },
                         onStopNavigation = viewModel::stopNavigation,
+                        onRestartLocation = viewModel::restartLocation,
+                        onOpenLocationSettings = {
+                            startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+                        },
+                        onOpenAppSettings = {
+                            startActivity(
+                                Intent(
+                                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                    Uri.fromParts("package", packageName, null),
+                                ),
+                            )
+                        },
                     )
                 }
             }

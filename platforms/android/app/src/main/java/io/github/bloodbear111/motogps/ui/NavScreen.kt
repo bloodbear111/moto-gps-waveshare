@@ -47,6 +47,9 @@ fun NavScreen(
     onSearch: (String) -> Unit,
     onStart: (GatewayPlace) -> Unit,
     onStop: () -> Unit,
+    onRestartLocation: () -> Unit,
+    onOpenLocationSettings: () -> Unit,
+    onOpenAppSettings: () -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
 
@@ -82,6 +85,9 @@ fun NavScreen(
                 approximateLocationOnly = approximateLocationOnly,
                 locationEvents = locationEvents,
                 onStop = onStop,
+                onRestartLocation = onRestartLocation,
+                onOpenLocationSettings = onOpenLocationSettings,
+                onOpenAppSettings = onOpenAppSettings,
             )
         }
 
@@ -157,6 +163,9 @@ private fun ActiveNavigationCard(
     approximateLocationOnly: Boolean,
     locationEvents: List<String>,
     onStop: () -> Unit,
+    onRestartLocation: () -> Unit,
+    onOpenLocationSettings: () -> Unit,
+    onOpenAppSettings: () -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -228,6 +237,26 @@ private fun ActiveNavigationCard(
                         text = event,
                         style = MaterialTheme.typography.bodySmall,
                     )
+                }
+            }
+            if (session.fixesAccepted == 0) {
+                // Re-registering and reaching the two system screens are the
+                // only actions that can change a location client the platform
+                // has stopped filling, so they belong next to the evidence.
+                Text(
+                    text = stringResource(R.string.nav_location_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = onRestartLocation) {
+                        Text(stringResource(R.string.nav_restart_location))
+                    }
+                    OutlinedButton(onClick = onOpenLocationSettings) {
+                        Text(stringResource(R.string.nav_open_location_settings))
+                    }
+                }
+                OutlinedButton(onClick = onOpenAppSettings) {
+                    Text(stringResource(R.string.nav_open_app_permissions))
                 }
             }
             OutlinedButton(onClick = onStop) {

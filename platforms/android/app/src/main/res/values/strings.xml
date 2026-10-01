@@ -82,5 +82,9 @@
     <string name="nav_fix_none_yet">还没收到任何定位（已收到 %1$d 次）。到窗边或室外再等一会儿；导航必须拿到定位后才会规划路线</string>
     <string name="nav_fix_not_usable">定位不可用或已过期（已收到 %1$d 次），正在等待新的定位</string>
     <string name="nav_location_event">定位源</string>
+    <string name="nav_restart_location">重新定位</string>
+    <string name="nav_open_location_settings">系统定位设置</string>
+    <string name="nav_open_app_permissions">应用权限</string>
+    <string name="nav_location_hint">一直收不到定位时，先点「重新定位」；仍无回调再按下面两条检查系统设置。室内收不到卫星属于正常现象，请到窗边或室外再试。</string>
     <string name="app_version">版本：%1$s</string>
 </resources>
