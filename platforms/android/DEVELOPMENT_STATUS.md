@@ -455,6 +455,22 @@ APK 内已确认包含 `lib/arm64-v8a/libapssdk.so` 与 `lib/armeabi-v7a/libapss
 3. 自检页的地图可视化（用户建议的另一条路）**未实现**：需要高德地图 SDK 与同一个 Key，
    放在下一步；当前先保证「能定位」这件事成立。
 
+### 修复：界面不可滚动导致按钮点不到（v0.3.1）
+
+真机反馈「高德 Key 的保存按钮点不到」：设置页原来是固定高度的 `Column`，内容超过一屏后
+下半部分直接不可达。四个页面全部改为单一可滚动结构：
+
+| 页面 | 改动 |
+| --- | --- |
+| 设置 | `Column` 加 `verticalScroll`（网关、定位、高德三张卡） |
+| 导航 | 固定头部 + 内嵌 `LazyColumn` → **一个** `LazyColumn`（头部作为 item）；导航卡带诊断行时会很高，之前会被裁掉，连「结束导航 / 重新定位」都点不到 |
+| 连接 | 同上：权限/扫描头部与设备列表合成一个列表 |
+| 自检 | 同上：按钮与检查项合成一个列表 |
+
+嵌套 `LazyColumn`（外层 `Column` 固定高度）会让下方内容既不能滚动也点不到，这是这次
+问题的根因；`LazyColumn` 外面套 `verticalScroll` 还会因无限高度约束崩溃，所以统一改成
+单列表 + `contentPadding`。
+
 阶段五（前台服务与锁屏导航）、阶段六（地图下载与可选音乐控制）、
 阶段七（完整测试与交付）、阶段八（Fork 与 Release）见
 [README.md](README.md) 与 [UPSTREAM_CONTRIBUTION.md](UPSTREAM_CONTRIBUTION.md)。

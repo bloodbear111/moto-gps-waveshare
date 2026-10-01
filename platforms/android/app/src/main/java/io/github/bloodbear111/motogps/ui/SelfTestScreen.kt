@@ -2,6 +2,7 @@ package io.github.bloodbear111.motogps.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -32,50 +33,55 @@ fun SelfTestScreen(
     report: SelfTestReport,
     onRun: () -> Unit,
 ) {
-    Column(
+    LazyColumn(
         modifier = modifier
-            .fillMaxSize()
-            .padding(16.dp),
+            .fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Button(onClick = onRun, enabled = !report.running) {
-            Text(
-                text = stringResource(
-                    if (report.running) R.string.selftest_running
-                    else R.string.selftest_run,
-                ),
-            )
+        item(key = "header") {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(onClick = onRun, enabled = !report.running) {
+                    Text(
+                        text = stringResource(
+                            if (report.running) R.string.selftest_running
+                            else R.string.selftest_run,
+                        ),
+                    )
+                }
+                Text(
+                    text = stringResource(R.string.selftest_intro),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+
+                if (report.nativeAvailable && report.checks.isNotEmpty()) {
+                    Text(
+                        text = stringResource(
+                            R.string.selftest_summary,
+                            report.passedCount,
+                            report.failedCount,
+                        ),
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                }
+                report.error?.let {
+                    Text(text = it, color = MaterialTheme.colorScheme.error)
+                }
+            }
         }
-        Text(
-            text = stringResource(R.string.selftest_intro),
-            style = MaterialTheme.typography.bodySmall,
-        )
 
         if (!report.nativeAvailable) {
-            Text(
-                text = report.error?.let {
-                    stringResource(R.string.selftest_native_missing_detail, it)
-                } ?: stringResource(R.string.selftest_native_missing),
-                color = MaterialTheme.colorScheme.error,
-            )
-        } else {
-            if (report.checks.isNotEmpty()) {
+            item(key = "native-missing") {
                 Text(
-                    text = stringResource(
-                        R.string.selftest_summary,
-                        report.passedCount,
-                        report.failedCount,
-                    ),
-                    style = MaterialTheme.typography.titleMedium,
+                    text = report.error?.let {
+                        stringResource(R.string.selftest_native_missing_detail, it)
+                    } ?: stringResource(R.string.selftest_native_missing),
+                    color = MaterialTheme.colorScheme.error,
                 )
             }
-            report.error?.let {
-                Text(text = it, color = MaterialTheme.colorScheme.error)
-            }
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(report.checks, key = { it.name }) { check ->
-                    CheckRow(check)
-                }
+        } else {
+            items(report.checks, key = { it.name }) { check ->
+                CheckRow(check)
             }
         }
     }

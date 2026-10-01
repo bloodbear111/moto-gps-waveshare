@@ -2,6 +2,7 @@ package io.github.bloodbear111.motogps.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -54,111 +55,118 @@ fun NavScreen(
 ) {
     var query by remember { mutableStateOf("") }
 
-    Column(
+    // One scrollable list instead of a fixed header over a nested list: the
+    // active-navigation card can be taller than the screen (it carries the
+    // bring-up diagnostics), and a nested LazyColumn under a Column leaves those
+    // rows - including the buttons - unreachable.
+    LazyColumn(
         modifier = modifier
-            .fillMaxSize()
-            .padding(16.dp),
+            .fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(
-            text = stringResource(R.string.nav_title),
-            style = MaterialTheme.typography.titleLarge,
-        )
-
-        if (!gatewayConfigured) {
-            Card(modifier = Modifier.fillMaxWidth()) {
+        item(key = "header") {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    text = stringResource(R.string.nav_gateway_missing),
-                    modifier = Modifier.padding(12.dp),
+                    text = stringResource(R.string.nav_title),
+                    style = MaterialTheme.typography.titleLarge,
                 )
-            }
-        } else {
-            Text(
-                text = stringResource(R.string.nav_gateway, gatewayAddress.orEmpty()),
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
 
-        if (session.active) {
-            ActiveNavigationCard(
-                session = session,
-                hasPreciseLocation = hasPreciseLocation,
-                approximateLocationOnly = approximateLocationOnly,
-                locationEvents = locationEvents,
-                onStop = onStop,
-                onRestartLocation = onRestartLocation,
-                onOpenLocationSettings = onOpenLocationSettings,
-                onOpenAppSettings = onOpenAppSettings,
-            )
-        }
+                if (!gatewayConfigured) {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = stringResource(R.string.nav_gateway_missing),
+                            modifier = Modifier.padding(12.dp),
+                        )
+                    }
+                } else {
+                    Text(
+                        text = stringResource(R.string.nav_gateway, gatewayAddress.orEmpty()),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                label = { Text(stringResource(R.string.nav_search_label)) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(0.7f),
-            )
-            Button(
-                onClick = { onSearch(query) },
-                enabled = gatewayConfigured && !searching && query.isNotBlank(),
-                modifier = Modifier.padding(top = 8.dp),
-            ) {
-                Text(
-                    text = stringResource(
-                        if (searching) R.string.nav_searching else R.string.nav_search,
-                    ),
-                )
-            }
-        }
+                if (session.active) {
+                    ActiveNavigationCard(
+                        session = session,
+                        hasPreciseLocation = hasPreciseLocation,
+                        approximateLocationOnly = approximateLocationOnly,
+                        locationEvents = locationEvents,
+                        onStop = onStop,
+                        onRestartLocation = onRestartLocation,
+                        onOpenLocationSettings = onOpenLocationSettings,
+                        onOpenAppSettings = onOpenAppSettings,
+                    )
+                }
 
-        destinationError?.let {
-            Text(
-                text = it,
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
-
-        if (gatewayUnreachable) {
-            // The message above already names the address the phone actually
-            // dialled; this is the action that clears a stale answer for it.
-            Text(
-                text = stringResource(R.string.nav_gateway_dns_hint),
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
-
-        if (places.isEmpty() && !searching && destinationError == null) {
-            Text(
-                text = stringResource(R.string.nav_no_results),
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
-
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(places, key = { it.id }) { place ->
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = { query = it },
+                        label = { Text(stringResource(R.string.nav_search_label)) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(0.7f),
+                    )
+                    Button(
+                        onClick = { onSearch(query) },
+                        enabled = gatewayConfigured && !searching && query.isNotBlank(),
+                        modifier = Modifier.padding(top = 8.dp),
                     ) {
-                        Column(modifier = Modifier.fillMaxWidth(0.65f)) {
-                            Text(place.name)
-                            Text(
-                                text = place.displayArea.ifBlank { place.address },
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                        }
-                        Button(onClick = { onStart(place) }) {
-                            Text(stringResource(R.string.nav_start))
-                        }
+                        Text(
+                            text = stringResource(
+                                if (searching) R.string.nav_searching else R.string.nav_search,
+                            ),
+                        )
+                    }
+                }
+
+                destinationError?.let {
+                    Text(
+                        text = it,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+
+                if (gatewayUnreachable) {
+                    // The message above already names the address the phone
+                    // actually dialled; this is the action that clears a stale
+                    // answer for it.
+                    Text(
+                        text = stringResource(R.string.nav_gateway_dns_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+
+                if (places.isEmpty() && !searching && destinationError == null) {
+                    Text(
+                        text = stringResource(R.string.nav_no_results),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+        }
+
+        items(places, key = { it.id }) { place ->
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth(0.65f)) {
+                        Text(place.name)
+                        Text(
+                            text = place.displayArea.ifBlank { place.address },
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    Button(onClick = { onStart(place) }) {
+                        Text(stringResource(R.string.nav_start))
                     }
                 }
             }

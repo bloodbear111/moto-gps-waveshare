@@ -2,6 +2,7 @@ package io.github.bloodbear111.motogps.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -41,75 +42,79 @@ fun ConnectScreen(
     onConnect: (MotoBleDiscovery) -> Unit,
     onDisconnect: () -> Unit,
 ) {
-    Column(
+    // The header (permission / scan buttons) and the discovered devices share one
+    // scrollable list, so nothing can end up below the fold and unreachable.
+    LazyColumn(
         modifier = modifier
-            .fillMaxSize()
-            .padding(16.dp),
+            .fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        ConnectionCard(
-            state = connectionState,
-            frameSize = frameSize,
-            onDisconnect = onDisconnect,
-        )
+        item(key = "header") {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                ConnectionCard(
+                    state = connectionState,
+                    frameSize = frameSize,
+                    onDisconnect = onDisconnect,
+                )
 
-        if (!bluetoothLeSupported) {
-            Text(
-                text = stringResource(R.string.bluetooth_unsupported),
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodyMedium,
-            )
-        } else if (!hasBluetoothPermission) {
-            Text(
-                text = stringResource(R.string.bluetooth_permission_missing),
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Button(onClick = onRequestBluetooth) {
-                Text(stringResource(R.string.grant_bluetooth))
-            }
-        } else if (!bluetoothEnabled) {
-            Text(
-                text = stringResource(R.string.bluetooth_off),
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Button(onClick = onOpenBluetoothSettings) {
-                Text(stringResource(R.string.open_bluetooth_settings))
-            }
-        } else {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (scanning) {
-                    OutlinedButton(onClick = onStopScan) {
-                        Text(stringResource(R.string.scan_stop))
+                if (!bluetoothLeSupported) {
+                    Text(
+                        text = stringResource(R.string.bluetooth_unsupported),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                } else if (!hasBluetoothPermission) {
+                    Text(
+                        text = stringResource(R.string.bluetooth_permission_missing),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Button(onClick = onRequestBluetooth) {
+                        Text(stringResource(R.string.grant_bluetooth))
+                    }
+                } else if (!bluetoothEnabled) {
+                    Text(
+                        text = stringResource(R.string.bluetooth_off),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Button(onClick = onOpenBluetoothSettings) {
+                        Text(stringResource(R.string.open_bluetooth_settings))
                     }
                 } else {
-                    Button(onClick = onStartScan) {
-                        Text(stringResource(R.string.scan_start))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (scanning) {
+                            OutlinedButton(onClick = onStopScan) {
+                                Text(stringResource(R.string.scan_stop))
+                            }
+                        } else {
+                            Button(onClick = onStartScan) {
+                                Text(stringResource(R.string.scan_start))
+                            }
+                        }
                     }
                 }
-            }
-        }
 
-        scanError?.let {
-            Text(
-                text = it,
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
+                scanError?.let {
+                    Text(
+                        text = it,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
 
-        if (discoveries.isEmpty()) {
-            Text(
-                text = stringResource(R.string.scan_empty),
-                style = MaterialTheme.typography.bodySmall,
-            )
-        } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(discoveries, key = { it.address }) { discovery ->
-                    DiscoveryRow(discovery = discovery, onConnect = onConnect)
+                if (discoveries.isEmpty()) {
+                    Text(
+                        text = stringResource(R.string.scan_empty),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
             }
+        }
+
+        items(discoveries, key = { it.address }) { discovery ->
+            DiscoveryRow(discovery = discovery, onConnect = onConnect)
         }
     }
 }
