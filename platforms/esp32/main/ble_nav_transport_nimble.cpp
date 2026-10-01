@@ -496,6 +496,15 @@ void BleNavTransport::run_rx_worker() {
         continue;
       }
 
+      // Bring-up visibility: the phone reports "awaiting initial device Ready"
+      // while it is still waiting for us to answer its Starting message, and
+      // from the outside that is indistinguishable from a frame that never
+      // arrived. One line per complete message settles which it is.
+      ESP_LOGI(kTag, "RX type=%u seq=%u flags=0x%02X",
+               static_cast<unsigned>(assembled.message.type),
+               static_cast<unsigned>(assembled.message.sequence),
+               static_cast<unsigned>(assembled.message.flags));
+
       // Decode only the control messages the transport itself must inspect.
       // PhoneNavBridge owns application-message decoding; decoding a large
       // MapScene here as well used twice the transient heap and kept the RX
@@ -576,6 +585,11 @@ void BleNavTransport::run_rx_worker() {
       }
 
       if (phone_status != nullptr) {
+        ESP_LOGI(kTag,
+                 "phone ConnectionStatus state=%u session=%u -> bridge ack=%u",
+                 static_cast<unsigned>(phone_status->state),
+                 static_cast<unsigned>(phone_status->session_id),
+                 static_cast<unsigned>(status));
         if (status == moto::ble::AckStatus::Unsupported) {
           send_connection_status(moto::ble::ConnectionState::Closing);
         } else if (status == moto::ble::AckStatus::Ok) {
@@ -637,6 +651,8 @@ void BleNavTransport::send_connection_status(
     moto::ble::ConnectionState state) {
   const std::uint32_t session_id = session_id_.load();
   if (session_id == 0) {
+    ESP_LOGW(kTag, "not sending ConnectionStatus(%u): no session id yet",
+             static_cast<unsigned>(state));
     return;
   }
   moto::ble::ConnectionStatus status;
@@ -656,6 +672,11 @@ void BleNavTransport::send_connection_status(
   status.max_frame_size =
       static_cast<std::uint16_t>(negotiated_frame_size());
   status.heartbeat_interval_ms = 1'000;
+  ESP_LOGI(kTag,
+           "TX ConnectionStatus state=%u session=%u frame=%u heartbeat=%u",
+           static_cast<unsigned>(state), static_cast<unsigned>(session_id),
+           static_cast<unsigned>(status.max_frame_size),
+           static_cast<unsigned>(status.heartbeat_interval_ms));
   send_message(moto::ble::Message{status}, moto::ble::Urgent);
 }
 
