@@ -76,7 +76,6 @@
     <string name="nav_remaining">剩余 %1$.1f km / %2$d 分钟</string>
     <string name="nav_next">下一步：%1$s</string>
     <string name="nav_off_route">已偏航，正在重新规划</string>
-    <string name="nav_no_fix">等待定位（需要精确位置权限）</string>
     <string name="nav_sent">已发送快照 %1$d 次，路线窗口 %2$d 次</string>
     <string name="nav_fix_no_permission">没有定位权限：请授予「精确位置」后再点开始导航</string>
     <string name="nav_fix_coarse_only">只给了模糊位置：导航需要「精确位置」，请在系统设置里改成精确</string>
