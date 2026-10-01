@@ -64,6 +64,11 @@ class MainActivity : ComponentActivity() {
                     val scanError by viewModel.scanError.collectAsStateWithLifecycle()
                     val selfTest by viewModel.selfTest.collectAsStateWithLifecycle()
                     val gateway by viewModel.gatewayAddress.collectAsStateWithLifecycle()
+                    val places by viewModel.places.collectAsStateWithLifecycle()
+                    val searching by viewModel.searching.collectAsStateWithLifecycle()
+                    val destinationError by
+                        viewModel.destinationError.collectAsStateWithLifecycle()
+                    val navigation by viewModel.navigation.collectAsStateWithLifecycle()
 
                     MotoGpsApp(
                         connectionState = connectionState,
@@ -73,6 +78,10 @@ class MainActivity : ComponentActivity() {
                         scanError = scanError,
                         selfTest = selfTest,
                         gatewayAddress = gateway,
+                        places = places,
+                        searching = searching,
+                        destinationError = destinationError,
+                        navigation = navigation,
                         hasBluetoothPermission = bluetoothPermissionGranted,
                         bluetoothEnabled = bluetoothEnabled,
                         bluetoothLeSupported = bluetoothLeSupported,
@@ -95,6 +104,9 @@ class MainActivity : ComponentActivity() {
                         onDisconnect = viewModel::disconnect,
                         onRunSelfTest = viewModel::runSelfTest,
                         onSaveGateway = viewModel::saveGatewayAddress,
+                        onSearchDestination = viewModel::searchDestination,
+                        onStartNavigation = viewModel::startNavigation,
+                        onStopNavigation = viewModel::stopNavigation,
                     )
                 }
             }

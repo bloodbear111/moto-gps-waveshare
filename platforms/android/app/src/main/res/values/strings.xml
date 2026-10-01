@@ -60,4 +60,22 @@
     <string name="gateway_save">保存</string>
     <string name="gateway_saved">已保存</string>
     <string name="gateway_unset">未配置。真实搜索与路线规划需要先填写网关地址。</string>
+    <string name="tab_nav">导航</string>
+    <string name="nav_title">导航与目的地</string>
+    <string name="nav_gateway_missing">尚未配置网关地址，请到「设置」里填写，例如 https://www.bloodbear.xin/moto-gps/api</string>
+    <string name="nav_gateway">网关：%1$s</string>
+    <string name="nav_search_label">搜索目的地</string>
+    <string name="nav_search">搜索</string>
+    <string name="nav_searching">搜索中…</string>
+    <string name="nav_no_results">还没有结果。输入地名后点「搜索」。</string>
+    <string name="nav_start">开始导航</string>
+    <string name="nav_stop">结束导航</string>
+    <string name="nav_active_title">导航中</string>
+    <string name="nav_destination">目的地：%1$s</string>
+    <string name="nav_speed">速度：%1$d km/h</string>
+    <string name="nav_remaining">剩余 %1$.1f km / %2$d 分钟</string>
+    <string name="nav_next">下一步：%1$s</string>
+    <string name="nav_off_route">已偏航，正在重新规划</string>
+    <string name="nav_no_fix">等待定位（需要精确位置权限）</string>
+    <string name="nav_sent">已发送快照 %1$d 次，路线窗口 %2$d 次</string>
 </resources>

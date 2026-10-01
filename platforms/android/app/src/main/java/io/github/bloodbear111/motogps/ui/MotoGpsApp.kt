@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.automirrored.filled.FactCheck
+import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -20,6 +21,8 @@ import androidx.compose.ui.res.stringResource
 import io.github.bloodbear111.motogps.R
 import io.github.bloodbear111.motogps.ble.MotoBleConnectionState
 import io.github.bloodbear111.motogps.ble.MotoBleDiscovery
+import io.github.bloodbear111.motogps.gateway.GatewayPlace
+import io.github.bloodbear111.motogps.navigation.NavigationSession
 
 /**
  * Stage-1 shell: connect to the round display and verify the shared protocol
@@ -36,6 +39,10 @@ fun MotoGpsApp(
     scanError: String?,
     selfTest: SelfTestReport,
     gatewayAddress: String?,
+    places: List<GatewayPlace>,
+    searching: Boolean,
+    destinationError: String?,
+    navigation: NavigationSession.Snapshot,
     hasBluetoothPermission: Boolean,
     bluetoothEnabled: Boolean,
     bluetoothLeSupported: Boolean,
@@ -50,10 +57,14 @@ fun MotoGpsApp(
     onDisconnect: () -> Unit,
     onRunSelfTest: () -> Unit,
     onSaveGateway: (String) -> String?,
+    onSearchDestination: (String) -> Unit,
+    onStartNavigation: (GatewayPlace) -> Unit,
+    onStopNavigation: () -> Unit,
 ) {
     var tab by remember { mutableIntStateOf(0) }
     val titleRes = listOf(
         R.string.tab_connect,
+        R.string.tab_nav,
         R.string.tab_selftest,
         R.string.tab_settings,
     )
@@ -70,7 +81,8 @@ fun MotoGpsApp(
                             Icon(
                                 imageVector = when (index) {
                                     0 -> Icons.Filled.Bluetooth
-                                    1 -> Icons.AutoMirrored.Filled.FactCheck
+                                    1 -> Icons.Filled.Navigation
+                                    2 -> Icons.AutoMirrored.Filled.FactCheck
                                     else -> Icons.Filled.Settings
                                 },
                                 contentDescription = title,
@@ -102,7 +114,20 @@ fun MotoGpsApp(
                 onDisconnect = onDisconnect,
             )
 
-            1 -> SelfTestScreen(
+            1 -> NavScreen(
+                modifier = contentModifier,
+                gatewayAddress = gatewayAddress,
+                gatewayConfigured = gatewayAddress != null,
+                places = places,
+                searching = searching,
+                destinationError = destinationError,
+                session = navigation,
+                onSearch = onSearchDestination,
+                onStart = onStartNavigation,
+                onStop = onStopNavigation,
+            )
+
+            2 -> SelfTestScreen(
                 modifier = contentModifier,
                 report = selfTest,
                 onRun = onRunSelfTest,
