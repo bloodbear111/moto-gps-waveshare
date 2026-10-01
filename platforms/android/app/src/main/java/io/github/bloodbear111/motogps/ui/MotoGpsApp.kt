@@ -122,6 +122,8 @@ fun MotoGpsApp(
                 searching = searching,
                 destinationError = destinationError,
                 session = navigation,
+                hasPreciseLocation = hasLocationPermission,
+                approximateLocationOnly = approximateLocationOnly,
                 onSearch = onSearchDestination,
                 onStart = onStartNavigation,
                 onStop = onStopNavigation,

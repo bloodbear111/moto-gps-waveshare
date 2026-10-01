@@ -41,6 +41,8 @@ fun NavScreen(
     searching: Boolean,
     destinationError: String?,
     session: NavigationSession.Snapshot,
+    hasPreciseLocation: Boolean,
+    approximateLocationOnly: Boolean,
     onSearch: (String) -> Unit,
     onStart: (GatewayPlace) -> Unit,
     onStop: () -> Unit,
@@ -73,7 +75,12 @@ fun NavScreen(
         }
 
         if (session.active) {
-            ActiveNavigationCard(session = session, onStop = onStop)
+            ActiveNavigationCard(
+                session = session,
+                hasPreciseLocation = hasPreciseLocation,
+                approximateLocationOnly = approximateLocationOnly,
+                onStop = onStop,
+            )
         }
 
         Row(
@@ -144,6 +151,8 @@ fun NavScreen(
 @Composable
 private fun ActiveNavigationCard(
     session: NavigationSession.Snapshot,
+    hasPreciseLocation: Boolean,
+    approximateLocationOnly: Boolean,
     onStop: () -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -176,7 +185,20 @@ private fun ActiveNavigationCard(
                 )
             }
             if (session.gnssStale || !session.hasFix) {
-                Text(stringResource(R.string.nav_no_fix))
+                // Say *why*, because the core plans no route at all until it has
+                // a usable fix: the round screen then just shows "choose a
+                // destination on the phone" and nothing else happens.
+                val reason = when {
+                    !hasPreciseLocation && approximateLocationOnly ->
+                        R.string.nav_fix_coarse_only
+                    !hasPreciseLocation -> R.string.nav_fix_no_permission
+                    session.fixesAccepted == 0 -> R.string.nav_fix_none_yet
+                    else -> R.string.nav_fix_not_usable
+                }
+                Text(
+                    text = stringResource(reason, session.fixesAccepted),
+                    color = MaterialTheme.colorScheme.error,
+                )
             }
             Text(
                 stringResource(

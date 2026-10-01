@@ -78,4 +78,8 @@
     <string name="nav_off_route">已偏航，正在重新规划</string>
     <string name="nav_no_fix">等待定位（需要精确位置权限）</string>
     <string name="nav_sent">已发送快照 %1$d 次，路线窗口 %2$d 次</string>
+    <string name="nav_fix_no_permission">没有定位权限：请授予「精确位置」后再点开始导航</string>
+    <string name="nav_fix_coarse_only">只给了模糊位置：导航需要「精确位置」，请在系统设置里改成精确</string>
+    <string name="nav_fix_none_yet">还没收到任何定位（已收到 %1$d 次）。到窗边或室外再等一会儿；导航必须拿到定位后才会规划路线</string>
+    <string name="nav_fix_not_usable">定位不可用或已过期（已收到 %1$d 次），正在等待新的定位</string>
 </resources>

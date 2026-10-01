@@ -105,7 +105,18 @@ class MainActivity : ComponentActivity() {
                         onRunSelfTest = viewModel::runSelfTest,
                         onSaveGateway = viewModel::saveGatewayAddress,
                         onSearchDestination = viewModel::searchDestination,
-                        onStartNavigation = viewModel::startNavigation,
+                        // Navigation cannot plan anything without a precise
+                        // fix, so ask for the permission here instead of leaving
+                        // the rider to find it in Settings.
+                        onStartNavigation = { place ->
+                            if (locationPermissionGranted && !approximateLocationOnly) {
+                                viewModel.startNavigation(place)
+                            } else {
+                                locationLauncher.launch(
+                                    BlePermissions.navigationLocationPermissions,
+                                )
+                            }
+                        },
                         onStopNavigation = viewModel::stopNavigation,
                     )
                 }

@@ -50,6 +50,10 @@ class NavigationSession(
         val horizontalAccuracyM: Double = 0.0,
         val sentSnapshots: Int = 0,
         val sentRouteWindows: Int = 0,
+        /** Fixes handed to the core. Zero means the phone never produced one. */
+        val fixesAccepted: Int = 0,
+        /** Age of the newest fix in ms, or null when there has never been one. */
+        val lastFixAgeMs: Long? = null,
         val lastError: String? = null,
     )
 
@@ -60,6 +64,8 @@ class NavigationSession(
     private var destinationName: String? = null
     private var fixJob: Job? = null
     private var tickJob: Job? = null
+    private var fixesAccepted = 0
+    private var lastFixAtMs: Long? = null
 
     /**
      * Begins navigation towards [destination]. The core answers with the first
@@ -85,6 +91,8 @@ class NavigationSession(
         }
         activeRoute = null
         destinationName = null
+        fixesAccepted = 0
+        lastFixAtMs = null
         // One final Idle snapshot so the display leaves navigation instead of
         // holding the last frame forever.
         mirrorToDisplay()
@@ -100,6 +108,8 @@ class NavigationSession(
         fixJob = scope.launch {
             try {
                 location.fixes().collect { fix ->
+                    fixesAccepted += 1
+                    lastFixAtMs = clock()
                     drain(core.pushFix(fix))
                 }
             } catch (error: Throwable) {
@@ -281,6 +291,8 @@ class NavigationSession(
             horizontalAccuracyM = snapshot.horizontalAccuracyM,
             sentSnapshots = if (sent) _state.value.sentSnapshots + 1 else _state.value.sentSnapshots,
             sentRouteWindows = windows,
+            fixesAccepted = fixesAccepted,
+            lastFixAgeMs = lastFixAtMs?.let { clock() - it },
         )
     }
 
