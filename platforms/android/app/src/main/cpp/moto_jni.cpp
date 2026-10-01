@@ -8,6 +8,7 @@
 #include <jni.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <memory>
@@ -15,6 +16,7 @@
 #include <vector>
 
 #include "moto/ble_protocol/ble_protocol.hpp"
+#include "moto_coordinates.hpp"
 #include "moto_golden_selftest.h"
 #include "nav_app/nav_app.hpp"
 
@@ -1327,4 +1329,51 @@ Java_io_github_bloodbear111_motogps_navigation_MotoNavCore_nativeGoldenSelfTest(
                         check.detail);
     }
     return StringsToArray(env, lines);
+}
+
+// ---------------------------------------------------------------------------
+// Coordinate system bridge.
+//
+// AMap's location SDK answers in GCJ-02, while the navigation pipeline is
+// defined in WGS84 (the gateway is the only place that converts to GCJ-02 for
+// AMap). A GCJ-02 fix therefore has to be brought back before it can be used,
+// or the gateway shifts it a second time and every position ends up roughly
+// 500 m off - a bug that looks like bad GPS rather than bad coordinates.
+//
+// The forward transform lives in upstream `shared/coordinates`; this inverse is
+// a fixed-point iteration on that same function, so the two directions cannot
+// drift apart and no second copy of the China-region offset maths exists.
+// ---------------------------------------------------------------------------
+
+extern "C" JNIEXPORT jdoubleArray JNICALL
+Java_io_github_bloodbear111_motogps_navigation_CoordinateConversion_nativeGcj02ToWgs84(
+    JNIEnv* env, jobject, jdouble longitude_deg, jdouble latitude_deg) {
+    const moto::coordinates::Coordinate gcj02{longitude_deg, latitude_deg};
+    if (!moto::coordinates::is_valid_coordinate(gcj02)) return nullptr;
+
+    // Outside mainland coverage the forward transform passes the value through
+    // unchanged, so the same iteration lands on the input and does no harm.
+    moto::coordinates::Coordinate wgs84 = gcj02;
+    constexpr int kMaxIterations = 8;
+    constexpr double kEpsilonDeg = 1e-9;
+    for (int i = 0; i < kMaxIterations; ++i) {
+        const moto::coordinates::ConversionResult forward =
+            moto::coordinates::wgs84_to_gcj02(wgs84);
+        if (!forward.ok()) return nullptr;
+        const double delta_lng =
+            forward.coordinate.longitude_deg - gcj02.longitude_deg;
+        const double delta_lat =
+            forward.coordinate.latitude_deg - gcj02.latitude_deg;
+        if (std::abs(delta_lng) < kEpsilonDeg && std::abs(delta_lat) < kEpsilonDeg) {
+            break;
+        }
+        wgs84.longitude_deg -= delta_lng;
+        wgs84.latitude_deg -= delta_lat;
+    }
+
+    jdoubleArray result = env->NewDoubleArray(2);
+    if (result == nullptr) return nullptr;
+    const jdouble values[2] = {wgs84.longitude_deg, wgs84.latitude_deg};
+    env->SetDoubleArrayRegion(result, 0, 2, values);
+    return result;
 }

@@ -144,9 +144,49 @@ $ANDROID_HOME/build-tools/36.0.0/apksigner verify --print-certs \
 | `BLUETOOTH` / `BLUETOOTH_ADMIN` | 旧系统上的蓝牙访问 | 仅 `maxSdkVersion="30"` |
 | `ACCESS_FINE_LOCATION` | 导航定位 | **与扫描权限互相独立**；扫描用 `neverForLocation` 并不取消它 |
 | `INTERNET` | 访问自建 HTTPS 网关 | |
+| `ACCESS_NETWORK_STATE` / `ACCESS_WIFI_STATE` / `CHANGE_WIFI_STATE` | 高德定位 SDK 的 Wi‑Fi / 基站网络定位 | 仅在启用高德定位时需要 |
+| `ACCESS_LOCATION_EXTRA_COMMANDS` | 高德定位 SDK 的 GNSS 控制命令 | |
 
 手机只在意模糊定位时，界面会明确提示导航需要精确定位，而不会把模糊定位当成可用位置。
 后台定位属于后续阶段，需要单独说明与验证，不作为默认前提。
+
+## 定位来源（系统定位 / 高德定位 SDK）
+
+App 有两种定位来源，**都是真实定位，也都可以配置为不使用**；不会因为失败就退回假数据。
+
+| 来源 | 何时使用 | 说明 |
+| --- | --- | --- |
+| 系统 `LocationManager` | 默认。未配置高德 Key 或未同意隐私政策时 | 订阅所有可用 provider（含 `fused`/`passive`），不假设有 Google Play 服务；国内无 GMS 的手机同样可用 |
+| 高德定位 SDK（`com.amap.api:location`） | 在「设置」里勾选同意 + 填入 Android Key 后 | 自带 Wi‑Fi / 基站网络定位，室内也能出位置；属于第三方服务，位置会发送给高德 |
+
+真机实测（小米 14 Pro / HyperOS）系统定位在这台手机上**拿不到任何回调**：
+`perm fine=true coarse=true`、`appOps allow`、`locationEnabled=true`、
+四个 provider 全部订阅成功，但 20 秒内 0 回调、`lastKnown` 全空，重订阅后仍为空。
+因此补上高德定位这条路径；`LocationSourceRouter` 在选择来源时会打印 `source: …`，
+高德失败时回退系统定位并打印原因，绝不伪造位置。
+
+### 坐标系边界（重要）
+
+* 手机交给共享核心、以及交给网关的一律是 **WGS84**；
+* 高德定位返回 **GCJ-02**（SDK 通过 `AMapLocation.getCoordType()` 自报），
+  由 `AmapFixMapper` 决定是否需要转换，转换本体在 `moto_jni.cpp` 里用上游
+  `shared/coordinates` 的**正算函数迭代求逆**，不存在第二套坐标数学；
+* 网关仍然是**唯一**把 WGS84 转成 GCJ-02 给高德 Web 服务的地方；
+* 坐标类型缺失或未知时**拒绝该定位**，而不是赌一个方向转换。
+
+### 高德 Android Key 的申请与填写
+
+1. 到高德开放平台新建 Key，平台选 **Android**，绑定：
+   * 包名 `io.github.bloodbear111.motogps`
+   * 签名 SHA1（debug / release 两张指纹见上一节；App 的「设置」页也会直接显示当前安装包的包名与 SHA1，可直接复制）
+2. 在 App「设置 → 高德定位」里勾选同意隐私政策并粘贴 Key（32 位十六进制）。
+3. 点「重新定位」或重新开始导航即生效，**不需要重新安装**。
+
+网关用的是**Web 服务** Key，与这里的 Android Key 不是同一个产品；把 Web 服务 Key 填进来会得到
+`USERKEY_PLAT_NOMATCH` / Key 校验失败，界面会把 SDK 的错误码原样显示出来（含 `35/36` 的提示）。
+
+许可证：高德定位 SDK 是专有第三方 SDK，见 [`THIRD_PARTY_NOTICES.md`](../../THIRD_PARTY_NOTICES.md)；
+仓库不附带其二进制，由 Gradle 从 Maven 解析。未同意隐私政策时不会初始化该 SDK。
 
 ## 协议要点（实现必须遵守）
 

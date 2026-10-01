@@ -24,8 +24,8 @@ android {
         applicationId = "io.github.bloodbear111.motogps"
         minSdk = 26
         targetSdk = 36
-        versionCode = 6
-        versionName = "0.2.4-location-probe2"
+        versionCode = 7
+        versionName = "0.3.0-amap-location"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -135,6 +135,13 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.play.services.location)
+    // AMap location SDK. Its jar carries lib/<abi>/libapssdk.so rather than an
+    // AAR's jni/ layout; AGP still packages those into lib/<abi>/ of the APK
+    // (verified with `aapt2`/zip listing). It ships only arm64-v8a and
+    // armeabi-v7a, so on an x86_64 emulator the SDK is absent - the source then
+    // fails to load and the app falls back to the platform providers instead of
+    // pretending to have a position.
+    implementation(libs.amap.location)
     // Not used directly, but ComponentActivity.registerForActivityResult is only
     // safe when a Fragment >= 1.3.0 is on the classpath; lint enforces that.
     implementation(libs.androidx.fragment.ktx)

@@ -18,6 +18,9 @@ import io.github.bloodbear111.motogps.gateway.GatewayPlace
 import io.github.bloodbear111.motogps.gateway.GatewayResult
 import io.github.bloodbear111.motogps.gateway.MotoGatewayClient
 import io.github.bloodbear111.motogps.navigation.AndroidLocationSource
+import io.github.bloodbear111.motogps.navigation.AmapLocationSettings
+import io.github.bloodbear111.motogps.navigation.AmapLocationSource
+import io.github.bloodbear111.motogps.navigation.LocationSourceRouter
 import io.github.bloodbear111.motogps.navigation.MotoNavCore
 import io.github.bloodbear111.motogps.navigation.NavCommandExecutor
 import io.github.bloodbear111.motogps.navigation.NavigationSession
@@ -86,16 +89,43 @@ class ConnectionViewModel(application: Application) : AndroidViewModel(applicati
     private val _locationEvents = MutableStateFlow<List<String>>(emptyList())
     val locationEvents: StateFlow<List<String>> = _locationEvents.asStateFlow()
 
+    /** AMap Android key, shown masked; the key itself never leaves the device. */
+    private val _amapKeyLabel = MutableStateFlow(AmapLocationSettings.describeKey(null))
+    val amapKeyLabel: StateFlow<String> = _amapKeyLabel.asStateFlow()
+
+    private val _amapConsent = MutableStateFlow(false)
+    val amapConsent: StateFlow<Boolean> = _amapConsent.asStateFlow()
+
+    private fun recordLocationEvent(event: String) {
+        // Six lines was not enough to see a whole bring-up: the permission and
+        // app-op lines pushed the provider answers off the card.
+        _locationEvents.value = (_locationEvents.value + event).takeLast(20)
+    }
+
     private val navSession = NavigationSession(
         core = navCore,
         executor = navExecutor,
-        location = AndroidLocationSource(
-            context = application,
-            onEvent = { event ->
-                // Six lines was not enough to see a whole bring-up: the permission
-                // and app-op lines pushed the provider answers off the card.
-                _locationEvents.value = (_locationEvents.value + event).takeLast(20)
+        location = LocationSourceRouter(
+            platform = AndroidLocationSource(
+                context = application,
+                onEvent = ::recordLocationEvent,
+            ),
+            // Read at collection time, not at construction: storing a key or
+            // giving consent then only needs a restart of navigation (or the
+            // "重新定位" button) rather than a reinstall.
+            amap = {
+                val key = AmapLocationSettings.loadKey(application)
+                if (key != null && AmapLocationSettings.isConsentGiven(application)) {
+                    AmapLocationSource(
+                        context = application,
+                        apiKey = key,
+                        onEvent = ::recordLocationEvent,
+                    )
+                } else {
+                    null
+                }
             },
+            onEvent = ::recordLocationEvent,
         ),
         display = central,
         scope = viewModelScope,
@@ -178,6 +208,33 @@ class ConnectionViewModel(application: Application) : AndroidViewModel(applicati
             stored = readStoredGateway(application),
             bundledDefault = BuildConfigGatewayDefault,
         )
+        AmapLocationSettings.loadKey(application)?.let {
+            _amapKeyLabel.value = AmapLocationSettings.describeKey(it)
+        }
+        _amapConsent.value = AmapLocationSettings.isConsentGiven(application)
+    }
+
+    /**
+     * Stores the AMap **Android platform** key.
+     *
+     * @return an error message to show, or null when the key was accepted.
+     */
+    fun saveAmapApiKey(input: String): String? = try {
+        val key = AmapLocationSettings.normalizeKey(input)
+        AmapLocationSettings.saveKey(getApplication(), key)
+        _amapKeyLabel.value = AmapLocationSettings.describeKey(key)
+        null
+    } catch (error: AmapLocationSettings.KeyError) {
+        error.message
+    }
+
+    /**
+     * Records the rider's answer about sending the position to AMap. The SDK is
+     * only initialised after this is true.
+     */
+    fun setAmapConsent(agreed: Boolean) {
+        AmapLocationSettings.setConsent(getApplication(), agreed)
+        _amapConsent.value = agreed
     }
 
     /**

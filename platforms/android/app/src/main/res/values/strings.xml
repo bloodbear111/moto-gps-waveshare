@@ -42,6 +42,15 @@
     <string name="request_location">请求定位权限</string>
     <string name="location_title">定位权限</string>
     <string name="location_note">扫描圆屏使用 neverForLocation，不读取位置；导航定位是另一项独立权限，开始导航时才会请求。</string>
+    <string name="amap_title">高德定位（室内可用）</string>
+    <string name="amap_note">系统定位在这台手机上收不到任何回调（四个 provider 都订阅成功却一次不返回）。高德定位 SDK 自带 Wi‑Fi / 基站网络定位，室内也能出位置；开启后会把定位结果发送给高德，请先阅读并同意其隐私政策。未同意或未填 Key 时仍走系统定位，不会伪造位置。</string>
+    <string name="amap_privacy_url">隐私政策：%1$s</string>
+    <string name="amap_consent">我已阅读并同意高德定位隐私政策，启用高德定位</string>
+    <string name="amap_key_hint">高德 Android Key（32 位十六进制）</string>
+    <string name="amap_key_save">保存 Key</string>
+    <string name="amap_key_saved">Key 已保存。下次开始导航或点「重新定位」时生效。</string>
+    <string name="amap_key_current">当前 Key：%1$s</string>
+    <string name="amap_console_hint">注意：这个 Key 必须在高德控制台建为「Android 平台」，并绑定下面的包名与签名 SHA1。网关用的「Web 服务」Key 不能给 App 使用（会报 USERKEY_PLAT_NOMATCH）。</string>
 
     <!-- Protocol self test -->
     <string name="selftest_run">运行协议自检</string>

@@ -408,6 +408,53 @@ v0.2.4 再补三项设备级证据用于收口：`backgroundRestricted`（MIUI �
    `connectedDevice` 前台服务与持续通知，息屏锁屏行为**未验证**。
 3. **定位真机通过**：需要用户按上面的诊断输出确认是设备/系统侧还是应用侧。
 
+---
+
+## 阶段四补充：高德定位 SDK（v0.3.0）
+
+### 背景（真机结论）
+
+v0.2.2 / v0.2.4 的诊断已排除权限、app-op、总开关、订阅与投递路径：
+`lastKnown` 是全局缓存，四个 provider（含 `fused`/`network`）全空，说明这台手机的
+系统定位服务**没有为任何应用产出过位置**。与其继续猜系统设置，直接引入国内真正
+可用的网络定位来源。
+
+### ✅ 已实现
+
+| 内容 | 位置 |
+| --- | --- |
+| 高德定位数据源 | `navigation/AmapLocationSource.kt`（`com.amap.api:location:11.3.000`，运行时 `setApiKey`，不需重新打包即可换 Key） |
+| 来源选择与回退 | `navigation/LocationSourceRouter.kt`：优先高德，失败打印原因后回退系统定位 |
+| 坐标系判定与拒绝 | `navigation/AmapLocation.kt` 的 `AmapFixMapper`：读取 SDK 自报的坐标类型，`GCJ02` 才转换，缺失/未知直接拒绝 |
+| GCJ-02 → WGS84 | `moto_jni.cpp` 新增 `nativeGcj02ToWgs84`，用上游 `shared/coordinates` 的正算函数迭代求逆（无第二套坐标数学） |
+| 隐私合规 | `AmapLocationSettings`：只有用户明确同意后才 `updatePrivacyShow/Agree` 并初始化 SDK |
+| 设置界面 | 「设置 → 高德定位」：同意开关、Key 输入与校验（32 位十六进制）、当前 Key 掩码显示、当前包名 + 签名 SHA1（可直接复制到高德控制台） |
+| 清单 | `AndroidManifest.xml` 增加高德所需网络/Wi‑Fi 权限与 `com.amap.api.location.APSService`（SDK 以 jar 形式发布，无法自带清单） |
+
+### 🧪 自动测试通过
+
+```text
+:app:testDebugUnitTest   tests=96 failures=0 errors=0 skipped=0
+:app:lintDebug           No issues found.
+:app:assembleDebug       BUILD SUCCESSFUL
+aapt2                    versionCode=7  versionName=0.3.0-amap-location
+```
+
+新增 11 个单测（`AmapFixMapperTest`）覆盖：GCJ-02 必须转换、WGS84 必须原样通过、
+坐标类型缺失或未知必须拒绝、转换不可用时拒绝、SDK 错误码带可执行提示、
+模拟位置与 0,0 拒绝、时间戳用单调时钟、Key 仅接受 32 位十六进制并只以掩码显示。
+
+APK 内已确认包含 `lib/arm64-v8a/libapssdk.so` 与 `lib/armeabi-v7a/libapssdk.so`
+（高德 jar 用 `lib/<abi>/` 布局，AGP 仍会打进 APK）；x86_64 没有对应 `.so`，
+模拟器上会加载失败并**回退系统定位**，不伪装成可用。
+
+### ⬜ 尚未验证
+
+1. 高德定位在真机上是否真的出 fix —— 需要用户申请 Android Key 并同意隐私政策后实测。
+2. Key 绑定错误时（包名/SHA1 不符）界面提示是否足够清楚 —— 需要真机跑一次失败路径。
+3. 自检页的地图可视化（用户建议的另一条路）**未实现**：需要高德地图 SDK 与同一个 Key，
+   放在下一步；当前先保证「能定位」这件事成立。
+
 阶段五（前台服务与锁屏导航）、阶段六（地图下载与可选音乐控制）、
 阶段七（完整测试与交付）、阶段八（Fork 与 Release）见
 [README.md](README.md) 与 [UPSTREAM_CONTRIBUTION.md](UPSTREAM_CONTRIBUTION.md)。

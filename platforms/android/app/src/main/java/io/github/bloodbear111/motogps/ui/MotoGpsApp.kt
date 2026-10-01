@@ -50,6 +50,8 @@ fun MotoGpsApp(
     bluetoothLeSupported: Boolean,
     hasLocationPermission: Boolean,
     approximateLocationOnly: Boolean,
+    amapKeyLabel: String,
+    amapConsent: Boolean,
     onRequestBluetooth: () -> Unit,
     onRequestLocation: () -> Unit,
     onOpenBluetoothSettings: () -> Unit,
@@ -59,6 +61,8 @@ fun MotoGpsApp(
     onDisconnect: () -> Unit,
     onRunSelfTest: () -> Unit,
     onSaveGateway: (String) -> String?,
+    onSaveAmapKey: (String) -> String?,
+    onSetAmapConsent: (Boolean) -> Unit,
     onSearchDestination: (String) -> Unit,
     onStartNavigation: (GatewayPlace) -> Unit,
     onStopNavigation: () -> Unit,
@@ -150,8 +154,12 @@ fun MotoGpsApp(
                 gatewayAddress = gatewayAddress,
                 hasLocationPermission = hasLocationPermission,
                 approximateLocationOnly = approximateLocationOnly,
+                amapKeyLabel = amapKeyLabel,
+                amapConsent = amapConsent,
                 onRequestLocation = onRequestLocation,
                 onSaveGateway = onSaveGateway,
+                onSaveAmapKey = onSaveAmapKey,
+                onSetAmapConsent = onSetAmapConsent,
             )
         }
     }

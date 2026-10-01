@@ -74,6 +74,9 @@ class MainActivity : ComponentActivity() {
                     val navigation by viewModel.navigation.collectAsStateWithLifecycle()
                     val locationEvents by
                         viewModel.locationEvents.collectAsStateWithLifecycle()
+                    val amapKeyLabel by
+                        viewModel.amapKeyLabel.collectAsStateWithLifecycle()
+                    val amapConsent by viewModel.amapConsent.collectAsStateWithLifecycle()
 
                     MotoGpsApp(
                         connectionState = connectionState,
@@ -94,6 +97,8 @@ class MainActivity : ComponentActivity() {
                         bluetoothLeSupported = bluetoothLeSupported,
                         hasLocationPermission = locationPermissionGranted,
                         approximateLocationOnly = approximateLocationOnly,
+                        amapKeyLabel = amapKeyLabel,
+                        amapConsent = amapConsent,
                         onRequestBluetooth = {
                             bluetoothLauncher.launch(BlePermissions.scanPermissions)
                         },
@@ -111,6 +116,8 @@ class MainActivity : ComponentActivity() {
                         onDisconnect = viewModel::disconnect,
                         onRunSelfTest = viewModel::runSelfTest,
                         onSaveGateway = viewModel::saveGatewayAddress,
+                        onSaveAmapKey = viewModel::saveAmapApiKey,
+                        onSetAmapConsent = viewModel::setAmapConsent,
                         onSearchDestination = viewModel::searchDestination,
                         // Navigation cannot plan anything without a precise
                         // fix, so ask for the permission here instead of leaving

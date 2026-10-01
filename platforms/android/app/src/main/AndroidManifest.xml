@@ -28,6 +28,18 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!--
+      Required by the AMap location SDK (com.amap.api:location). It does its own
+      network positioning over Wi-Fi and cell, so it needs network and Wi-Fi
+      state, and it exposes an extra command channel for that.
+      ACCESS_LOCATION_EXTRA_COMMANDS is what the platform documents for GNSS
+      control commands; it is not a way around any permission.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_LOCATION_EXTRA_COMMANDS" />
+
     <uses-feature
         android:name="android.hardware.bluetooth_le"
         android:required="true" />
@@ -56,6 +68,13 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+          AMap's location SDK runs its work in this service. It is declared here
+          because the SDK ships as a plain jar, which cannot merge a manifest of
+          its own, and the SDK fails to start without it.
+        -->
+        <service android:name="com.amap.api.location.APSService" />
     </application>
 
 </manifest>
