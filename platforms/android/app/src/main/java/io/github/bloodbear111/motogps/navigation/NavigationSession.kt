@@ -63,6 +63,8 @@ class NavigationSession(
         val fixesAccepted: Int = 0,
         /** Age of the newest fix in ms, or null when there has never been one. */
         val lastFixAgeMs: Long? = null,
+        /** Fixes accepted in the last [CADENCE_WINDOW_MS]. A rate, not a total. */
+        val recentFixes: Int = 0,
         val lastError: String? = null,
     )
 
@@ -75,6 +77,7 @@ class NavigationSession(
     private var tickJob: Job? = null
     private var fixesAccepted = 0
     private var lastFixAtMs: Long? = null
+    private val fixTimesMs = mutableListOf<Long>()
 
     /**
      * Begins navigation towards [destination]. The core answers with the first
@@ -114,6 +117,7 @@ class NavigationSession(
         destinationName = null
         fixesAccepted = 0
         lastFixAtMs = null
+        fixTimesMs.clear()
         // One final Idle snapshot so the display leaves navigation instead of
         // holding the last frame forever.
         mirrorToDisplay()
@@ -139,7 +143,12 @@ class NavigationSession(
             try {
                 location.fixes().collect { fix ->
                     fixesAccepted += 1
-                    lastFixAtMs = clock()
+                    val now = clock()
+                    lastFixAtMs = now
+                    fixTimesMs += now
+                    // Kept as a sliding window rather than a total: "断断续续"
+                    // is a rate problem, and a total hides it completely.
+                    fixTimesMs.removeAll { it < now - CADENCE_WINDOW_MS }
                     drain(core.pushFix(fix))
                 }
             } catch (cancelled: CancellationException) {
@@ -340,6 +349,7 @@ class NavigationSession(
             gatewayOnline = snapshot.network == NetworkState.Online.code,
             routeRequestInFlight = snapshot.routeRequestInFlight,
             fixesAccepted = fixesAccepted,
+            recentFixes = fixTimesMs.size,
             lastFixAgeMs = lastFixAtMs?.let { clock() - it },
         )
     }
@@ -347,5 +357,6 @@ class NavigationSession(
     private companion object {
         const val TICK_INTERVAL_MS = 1_000L
         const val E6 = 1_000_000.0
+        const val CADENCE_WINDOW_MS = 10_000L
     }
 }

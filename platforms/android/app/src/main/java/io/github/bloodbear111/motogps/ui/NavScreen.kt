@@ -252,6 +252,16 @@ private fun ActiveNavigationCard(
                 ),
                 style = MaterialTheme.typography.bodySmall,
             )
+            Text(
+                text = session.lastFixAgeMs?.let { ageMs ->
+                    stringResource(
+                        R.string.nav_fix_cadence,
+                        ageMs / 1000L,
+                        session.recentFixes,
+                    )
+                } ?: stringResource(R.string.nav_fix_cadence_never),
+                style = MaterialTheme.typography.bodySmall,
+            )
             session.lastError?.let {
                 Text(
                     text = it,

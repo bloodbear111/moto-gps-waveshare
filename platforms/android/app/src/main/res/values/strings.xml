@@ -92,6 +92,8 @@
     <string name="nav_core_offline">离线（不会规划路线）</string>
     <string name="nav_core_yes">是</string>
     <string name="nav_core_no">否</string>
+    <string name="nav_fix_cadence">定位更新：%1$d 秒前，近 10 秒 %2$d 次</string>
+    <string name="nav_fix_cadence_never">定位更新：还没有收到过</string>
     <string name="nav_fix_no_permission">没有定位权限：请授予「精确位置」后再点开始导航</string>
     <string name="nav_fix_coarse_only">只给了模糊位置：导航需要「精确位置」，请在系统设置里改成精确</string>
     <string name="nav_fix_none_yet">还没收到任何定位（已收到 %1$d 次）。到窗边或室外再等一会儿；导航必须拿到定位后才会规划路线</string>
