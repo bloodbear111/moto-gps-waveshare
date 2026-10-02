@@ -69,20 +69,21 @@ class MotionHeadingFusion {
     if (!std::isfinite(yaw_rate_dps)) {
       return false;
     }
-    if (!has_phone_reference_) {
-      // Without a phone course there is nothing to integrate towards. This
-      // board carries an accelerometer and a gyroscope and no magnetometer, so
-      // a gyro-only heading has no absolute reference: its zero is wherever
-      // the board happened to boot, and a few tenths of a degree per second of
-      // bias walks it around the dial in minutes. That reads as a compass that
-      // is simply wrong. Hold the heading instead and let the phone anchor it.
-      return false;
-    }
-    if (stationary_) {
-      // Parked: hold the heading exactly. Keep last_sample_ms_ untouched so
-      // the first sample after pulling away only sees a normal-rate gap.
-      return false;
-    }
+    // A gyro-only heading has no absolute reference - this board carries no
+    // magnetometer - so until the phone supplies a course this is a *relative*
+    // heading: zero is wherever the board booted, and [anchored] reports that.
+    // It is deliberately integrated anyway. Freezing it (what this used to do)
+    // meant the needle did not move at all until the phone anchored it, and on
+    // the device that is indistinguishable from a compass that does not work.
+    // The zero-rate bias that motivated the freeze is tracked separately in
+    // motion_heading_sensor.cpp while the bike is standing still.
+    // Parked or moving, the needle follows the gyro. While parked it goes
+    // through a wider deadband rather than freezing outright: a needle nailed
+    // to one number is indistinguishable from a broken compass, which is how it
+    // was reported. The gyro zero-offset that motivated the old full freeze is
+    // tracked separately in motion_heading_sensor.cpp while the bike is still,
+    // so what is left here is genuine rotation - the rider turning the bars on
+    // a stand, or the bike being walked into place.
     if (!initialized_) {
       // Relative motion remains useful before the first trustworthy course;
       // zero degrees is explicitly just a temporary local reference.
@@ -108,9 +109,9 @@ class MotionHeadingFusion {
     // About 30 ms of smoothing at the 125 Hz sensor rate: vibration is
     // suppressed without the sluggish response of phone-only course updates.
     filtered_rate_dps_ += (bounded - filtered_rate_dps_) * 0.24F;
-    const float active_rate = std::abs(filtered_rate_dps_) < kDeadbandDps
-                                  ? 0.0F
-                                  : filtered_rate_dps_;
+    const float deadband = stationary_ ? kStationaryDeadbandDps : kDeadbandDps;
+    const float active_rate =
+        std::abs(filtered_rate_dps_) < deadband ? 0.0F : filtered_rate_dps_;
     if (active_rate == 0.0F) {
       return false;
     }
@@ -121,11 +122,16 @@ class MotionHeadingFusion {
 
   [[nodiscard]] bool initialized() const noexcept { return initialized_; }
   [[nodiscard]] float heading_deg() const noexcept { return heading_deg_; }
+  // False while the heading is only relative to where the board booted.
+  [[nodiscard]] bool anchored() const noexcept { return has_phone_reference_; }
 
  private:
   static constexpr float kCourseAnchorSpeedMps = 1.5F;
   static constexpr float kStationarySpeedMps = 0.6F;
   static constexpr float kDeadbandDps = 0.65F;
+  // Wider while parked: engine vibration and the residual zero-offset must not
+  // move the needle, but a deliberate rotation must.
+  static constexpr float kStationaryDeadbandDps = 2.5F;
   static constexpr std::uint64_t kMaximumIntegrationGapMs = 160;
 
   static float normalize(float value) noexcept {

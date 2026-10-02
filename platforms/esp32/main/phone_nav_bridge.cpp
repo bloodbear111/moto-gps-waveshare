@@ -672,7 +672,21 @@ void PhoneNavBridge::consume_navigation(
 
     phone_snapshot.state = map_state(input.state);
     phone_snapshot.network = map_network(input.network);
-    phone_snapshot.display_page = map_page(input.display_page);
+    {
+      // Only a *change* of the phone's page is a request to switch. Snapshots
+      // repeat the current page every frame, and treating each repeat as a
+      // request pulled the rider off the page they had picked on the device -
+      // the music, compass and speed pages were unusable while navigating.
+      const moto::nav::DisplayPage incoming_page = map_page(input.display_page);
+      if (!phone_page_seen_ || incoming_page != last_phone_page_) {
+        phone_page_seen_ = true;
+        last_phone_page_ = incoming_page;
+        phone_snapshot.display_page = incoming_page;
+      } else {
+        // Keep whatever the rider or the previous request established.
+        phone_snapshot.display_page = snapshot_.display_page;
+      }
+    }
     phone_snapshot.has_destination = has_flag(
         input.flags, moto::ble::NavigationHasDestination);
     phone_snapshot.has_usable_fix = has_usable_fix;

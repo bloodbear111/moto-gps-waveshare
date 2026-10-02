@@ -141,6 +141,12 @@ class PhoneNavBridge {
   // snapshots must not steal that page, and the page must never be reported to
   // the phone as a v1 display_page value.
   bool local_accel_page_ = false;
+  // Last page the phone asked for. A snapshot repeats the current page on every
+  // frame, so only a *change* means "the phone wants a different page"; the rest
+  // are echoes, and honouring them yanked the rider off any page chosen on the
+  // device (music, compass, speed) once per snapshot.
+  bool phone_page_seen_ = false;
+  moto::nav::DisplayPage last_phone_page_ = moto::nav::DisplayPage::Navigation;
   bool gmeter_page_enabled_ = false;
   bool render_gmeter_page_enabled_ = false;
   moto::nav::NavSnapshot snapshot_before_demo_{};

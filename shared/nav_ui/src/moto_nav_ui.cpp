@@ -1865,6 +1865,22 @@ void format_g(char *out, std::size_t out_size, float value, bool always_sign) {
     *p = '\0';
 }
 
+namespace {
+// Slow per-axis baseline for the G readout. Subtracting it leaves *dynamic*
+// acceleration, so a level, stationary bike reads 0.00 on all three axes
+// instead of 1.00 on Z, and numbers only appear when something is happening.
+struct GAxisBaseline {
+    float x = 0.0F;
+    float y = 0.0F;
+    float z = 0.0F;
+    bool primed = false;
+};
+
+GAxisBaseline g_axis_baseline;
+constexpr float kAxisBaselineAlpha = 0.004F;
+constexpr float kAxisDisplayDeadbandG = 0.015F;
+}  // namespace
+
 void update_gmeter_view() {
     if(ui.gmeter_ball == nullptr) return;
 
@@ -1875,8 +1891,6 @@ void update_gmeter_view() {
         lv_obj_add_flag(ui.gmeter_glow, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(ui.gmeter_axes, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(ui.gmeter_status, LV_OBJ_FLAG_HIDDEN);
-        lv_label_set_text(ui.gmeter_value, "--");
-        lv_obj_set_style_text_color(ui.gmeter_value, kQuiet, 0);
         return;
     }
 
@@ -1894,7 +1908,6 @@ void update_gmeter_view() {
                                   : kIce;
     lv_obj_set_style_bg_color(ui.gmeter_ball, accent, 0);
     lv_obj_set_style_bg_color(ui.gmeter_glow, accent, 0);
-    lv_obj_set_style_text_color(ui.gmeter_value, accent, 0);
 
     const float ball_x = std::clamp(ui.gmeter.ball_x, -1.0F, 1.0F);
     const float ball_y = std::clamp(ui.gmeter.ball_y, -1.0F, 1.0F);
@@ -1912,18 +1925,34 @@ void update_gmeter_view() {
     lv_obj_set_pos(ui.gmeter_ball, centre_x + offset_x - ball_size / 2,
                    centre_y + offset_y - ball_size / 2);
 
-    char value[kGFormatBytes];
+    if(!g_axis_baseline.primed) {
+        g_axis_baseline = {ui.gmeter.axis_x_g, ui.gmeter.axis_y_g,
+                           ui.gmeter.axis_z_g, true};
+    } else {
+        g_axis_baseline.x +=
+            (ui.gmeter.axis_x_g - g_axis_baseline.x) * kAxisBaselineAlpha;
+        g_axis_baseline.y +=
+            (ui.gmeter.axis_y_g - g_axis_baseline.y) * kAxisBaselineAlpha;
+        g_axis_baseline.z +=
+            (ui.gmeter.axis_z_g - g_axis_baseline.z) * kAxisBaselineAlpha;
+    }
+    const auto dynamic_axis = [](float raw, float baseline) {
+        const float value = raw - baseline;
+        return std::abs(value) < kAxisDisplayDeadbandG ? 0.0F : value;
+    };
+
     char axis_x[kGFormatBytes];
     char axis_y[kGFormatBytes];
     char axis_z[kGFormatBytes];
     char axes[40];
-    format_g(value, sizeof(value), ui.gmeter.total_g, false);
-    format_g(axis_x, sizeof(axis_x), ui.gmeter.axis_x_g, true);
-    format_g(axis_y, sizeof(axis_y), ui.gmeter.axis_y_g, true);
-    format_g(axis_z, sizeof(axis_z), ui.gmeter.axis_z_g, true);
+    format_g(axis_x, sizeof(axis_x),
+             dynamic_axis(ui.gmeter.axis_x_g, g_axis_baseline.x), false);
+    format_g(axis_y, sizeof(axis_y),
+             dynamic_axis(ui.gmeter.axis_y_g, g_axis_baseline.y), false);
+    format_g(axis_z, sizeof(axis_z),
+             dynamic_axis(ui.gmeter.axis_z_g, g_axis_baseline.z), false);
     std::snprintf(axes, sizeof(axes), "X %s   Y %s   Z %s", axis_x, axis_y,
                   axis_z);
-    lv_label_set_text(ui.gmeter_value, value);
     lv_label_set_text(ui.gmeter_axes, axes);
 }
 
@@ -1994,15 +2023,12 @@ void create_gmeter_page() {
     lv_obj_align(ui.gmeter_status, LV_ALIGN_CENTER, 0, px(kGmeterDialOffsetY));
     lv_obj_add_flag(ui.gmeter_status, LV_OBJ_FLAG_HIDDEN);
 
-    ui.gmeter_value = make_label(page, &lv_font_montserrat_48, kIce, "0.00");
-    lv_obj_align(ui.gmeter_value, LV_ALIGN_CENTER, 0, px(66));
-    ui.gmeter_caption = make_label(page, &lv_font_montserrat_16, kQuiet,
-                                   "G  RESULTANT");
-    lv_obj_set_style_text_letter_space(ui.gmeter_caption, px(2), 0);
-    lv_obj_align(ui.gmeter_caption, LV_ALIGN_CENTER, 0, px(100));
     ui.gmeter_axes = make_label(page, &lv_font_montserrat_16, kSoft,
-                                "X +0.00   Y +0.00   Z +1.00");
-    lv_obj_align(ui.gmeter_axes, LV_ALIGN_CENTER, 0, px(126));
+                                "X 0.00   Y 0.00   Z 0.00");
+    // No resultant number any more: the dial is the readout, and the axis line
+    // under it shows dynamic acceleration, so it starts at zero and not at
+    // gravity's 1.00 on Z.
+    lv_obj_align(ui.gmeter_axes, LV_ALIGN_CENTER, 0, px(74));
 
     ui.gmeter = moto_gmeter_state_t{};
     update_gmeter_view();
