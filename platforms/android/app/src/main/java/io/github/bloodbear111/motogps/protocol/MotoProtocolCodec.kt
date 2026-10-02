@@ -170,6 +170,10 @@ class MotoProtocolCodec(maximumFrameSize: Int = DEFAULT_MAXIMUM_FRAME_SIZE) :
      * `shared/protocol/fixtures/ble-navigation-v1.golden.txt`, compiled into the
      * library at build time, through the shared codec.
      */
+    /** Media state for the round display's music page. */
+    fun encodeMediaState(input: MotoMediaStateInput): Array<ByteArray> =
+        nativeEncodeMediaState(handle, input)
+
     fun runGoldenSelfTest(): List<GoldenCheckResult> =
         nativeRunGoldenSelfTest().map(::parseGoldenLine)
 
@@ -212,6 +216,10 @@ class MotoProtocolCodec(maximumFrameSize: Int = DEFAULT_MAXIMUM_FRAME_SIZE) :
         sessionId: Int,
     ): Array<ByteArray>
 
+    private external fun nativeEncodeMediaState(
+        handle: Long,
+        input: MotoMediaStateInput,
+    ): Array<ByteArray>
     private external fun nativeEncodeHeartbeat(
         handle: Long,
         sessionId: Int,

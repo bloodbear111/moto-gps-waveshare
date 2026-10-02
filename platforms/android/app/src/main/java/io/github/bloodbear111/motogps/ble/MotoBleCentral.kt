@@ -23,6 +23,7 @@ import io.github.bloodbear111.motogps.protocol.BleHandshakeGate
 import io.github.bloodbear111.motogps.protocol.BleSessionHeartbeatClock
 import io.github.bloodbear111.motogps.protocol.BleWritePumpPolicy
 import io.github.bloodbear111.motogps.protocol.ConnectionState
+import io.github.bloodbear111.motogps.protocol.MotoMediaStateInput
 import io.github.bloodbear111.motogps.protocol.MotoAck
 import io.github.bloodbear111.motogps.protocol.MotoConnectionStatus
 import io.github.bloodbear111.motogps.protocol.MotoDeviceCommand
@@ -253,6 +254,13 @@ class MotoBleCentral(
     /** Display snapshot. Snapshots never request an application ACK. */
     fun sendNavigationSnapshot(snapshot: MotoSnapshotInput): Boolean =
         enqueueEncoded { active -> active.encodeNavigationSnapshot(snapshot) }
+
+    /**
+     * Media state for the music page. Sent when the track or playback state
+     * changes rather than on a timer; the device keeps showing what it has.
+     */
+    fun sendMediaState(media: MotoMediaStateInput): Boolean =
+        enqueueEncoded { active -> active.encodeMediaState(media) }
 
     /** Map scene. Always requests an application ACK (spec section 6.8). */
     fun sendMapScene(scene: MotoMapSceneInput): Boolean =

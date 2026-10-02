@@ -24,8 +24,8 @@ android {
         applicationId = "io.github.bloodbear111.motogps"
         minSdk = 26
         targetSdk = 36
-        versionCode = 13
-        versionName = "0.4.3-fix-stream-watchdog"
+        versionCode = 14
+        versionName = "0.5.0-music-page"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

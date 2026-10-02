@@ -27,6 +27,13 @@ import io.github.bloodbear111.motogps.navigation.NavigationSession
 import io.github.bloodbear111.motogps.navigation.Wgs84Point
 import io.github.bloodbear111.motogps.protocol.GoldenCheckResult
 import io.github.bloodbear111.motogps.protocol.MotoNativeLibrary
+import io.github.bloodbear111.motogps.protocol.DeviceCommandKind
+import io.github.bloodbear111.motogps.protocol.MotoMediaFlags
+import io.github.bloodbear111.motogps.protocol.MotoMediaStateInput
+import io.github.bloodbear111.motogps.protocol.toUtf8Budgeted
+import io.github.bloodbear111.motogps.media.MediaSessionWatcher
+import io.github.bloodbear111.motogps.media.MediaSnapshot
+import io.github.bloodbear111.motogps.media.MediaTransport
 import io.github.bloodbear111.motogps.protocol.MotoProtocolCodec
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
@@ -207,6 +214,57 @@ class ConnectionViewModel(application: Application) : AndroidViewModel(applicati
             _amapKeyLabel.value = AmapLocationSettings.describeKey(it)
         }
         _amapConsent.value = AmapLocationSettings.isConsentGiven(application)
+
+        // Music page: push media state changes to the display, and act on the
+        // transport buttons the display sends back. Without this the page waits
+        // for data that never arrives and its buttons do nothing.
+        central.onDeviceCommand = { command ->
+            when (command.kindOrNull()) {
+                DeviceCommandKind.MusicPrevious ->
+                    MediaSessionWatcher.transport(MediaTransport.Previous)
+                DeviceCommandKind.MusicNext ->
+                    MediaSessionWatcher.transport(MediaTransport.Next)
+                DeviceCommandKind.MusicTogglePlayback ->
+                    MediaSessionWatcher.transport(MediaTransport.TogglePlayback)
+                else -> Unit
+            }
+        }
+        viewModelScope.launch {
+            var last: MediaSnapshot? = null
+            var lastSentAtMs = 0L
+            MediaSessionWatcher.state.collect { media ->
+                val now = SystemClock.elapsedRealtime()
+                if (media == null) {
+                    if (last != null) {
+                        last = null
+                        central.sendMediaState(MotoMediaStateInput())
+                    }
+                    return@collect
+                }
+                val changed = media.trackToken != last?.trackToken ||
+                    media.playing != last?.playing
+                // Position moves every second; the device only needs it often
+                // enough to advance its progress bar.
+                if (!changed && now - lastSentAtMs < MEDIA_POSITION_REFRESH_MS) return@collect
+                last = media
+                lastSentAtMs = now
+                central.sendMediaState(
+                    MotoMediaStateInput().apply {
+                        flags = MotoMediaFlags.CONNECTED or
+                            (if (media.playing) MotoMediaFlags.PLAYING else 0)
+                        trackToken = media.trackToken
+                        positionS = media.positionS
+                        durationS = media.durationS
+                        sourceNameUtf8 = media.sourceName
+                            .toUtf8Budgeted(MotoMediaFlags.MAX_SOURCE_BYTES)
+                        trackTitleUtf8 = media.title
+                            .toUtf8Budgeted(MotoMediaFlags.MAX_TITLE_BYTES)
+                        artistNameUtf8 = media.artist
+                            .toUtf8Budgeted(MotoMediaFlags.MAX_ARTIST_BYTES)
+                    },
+                )
+            }
+        }
     }
 
     /**
@@ -370,6 +428,8 @@ class ConnectionViewModel(application: Application) : AndroidViewModel(applicati
 
     private companion object {
         const val PREFERENCES = "moto_gps"
+        /** Music position is a progress bar, not a clock: 5 s is plenty. */
+        const val MEDIA_POSITION_REFRESH_MS = 5_000L
 
         /**
          * No gateway ships with the app: the project does not operate a public

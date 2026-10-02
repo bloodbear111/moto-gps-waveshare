@@ -41,6 +41,8 @@ constexpr const char* kNavSnapshotBufferClass =
     "io/github/bloodbear111/motogps/navigation/MotoNavSnapshotBuffer";
 constexpr const char* kNavCommandClass =
     "io/github/bloodbear111/motogps/navigation/MotoNavCommand";
+constexpr const char* kMediaStateInputClass =
+    "io/github/bloodbear111/motogps/protocol/MotoMediaStateInput";
 constexpr const char* kProtocolExceptionClass =
     "io/github/bloodbear111/motogps/protocol/MotoProtocolException";
 
@@ -688,6 +690,38 @@ Java_io_github_bloodbear111_motogps_protocol_MotoProtocolCodec_nativeEncodeConne
         codec, static_cast<moto::ble::ConnectionState>(state),
         static_cast<std::uint32_t>(session_id));
     return EncodeMessage(env, codec, moto::ble::Message{status}, 0);
+}
+
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_io_github_bloodbear111_motogps_protocol_MotoProtocolCodec_nativeEncodeMediaState(
+    JNIEnv* env, jclass, jlong handle, jobject input) {
+    CodecHandle* codec = AsCodec(handle);
+    if (codec == nullptr || input == nullptr) {
+        ThrowRuntime(env, "codec handle is closed or input is null");
+        return nullptr;
+    }
+    FieldSet fields(env, kMediaStateInputClass);
+    if (fields.cls == nullptr) {
+        ThrowRuntime(env, "MotoMediaStateInput class is missing");
+        return nullptr;
+    }
+    moto::ble::MediaState media;
+    media.flags = static_cast<std::uint8_t>(
+        ReadInt(env, input, fields, "flags"));
+    media.track_token = static_cast<std::uint32_t>(
+        ReadInt(env, input, fields, "trackToken"));
+    media.position_s = static_cast<std::uint16_t>(
+        ReadInt(env, input, fields, "positionS"));
+    media.duration_s = static_cast<std::uint16_t>(
+        ReadInt(env, input, fields, "durationS"));
+    // UTF-8 byte arrays, not modified UTF-8: the shared encoder measures byte
+    // lengths against the v1 budgets (31/63/47) and rejects the whole message
+    // when one of them is exceeded.
+    media.source_name = ReadBytesField(env, input, fields, "sourceNameUtf8");
+    media.track_title = ReadBytesField(env, input, fields, "trackTitleUtf8");
+    media.artist_name = ReadBytesField(env, input, fields, "artistNameUtf8");
+    if (env->ExceptionCheck()) return nullptr;
+    return EncodeMessage(env, codec, moto::ble::Message{media}, 0);
 }
 
 extern "C" JNIEXPORT jobjectArray JNICALL
