@@ -96,21 +96,31 @@ class AmapLocationSource(
         var conversionsLogged = false
         var firstFixLogged = false
         var lastRejection: String? = null
+        var rejectionRepeats = 0
 
         val listener = AMapLocationListener { location ->
             val readout = location.toReadout()
             when (val outcome = mapper.map(readout, SystemClock.elapsedRealtime())) {
                 is AmapFixOutcome.Rejected -> {
-                    // A rejected key fails on every callback; printing each one
-                    // buries the rest of the card, and the fix does not change
-                    // between them.
-                    if (outcome.reason != lastRejection) {
+                    if (outcome.reason == lastRejection) {
+                        rejectionRepeats += 1
+                        // Say it again every thirtieth time. Deduplicating for
+                        // ever made a permanently failing feed look like a feed
+                        // that had gone quiet, which is a different diagnosis.
+                        if (rejectionRepeats % 30 == 0) {
+                            onEvent?.invoke(
+                                "amap rejected ×$rejectionRepeats: ${outcome.reason}",
+                            )
+                        }
+                    } else {
                         lastRejection = outcome.reason
+                        rejectionRepeats = 1
                         onEvent?.invoke("amap rejected: ${outcome.reason}")
                     }
                 }
                 is AmapFixOutcome.Fix -> {
                     lastRejection = null
+                    rejectionRepeats = 0
                     if (!firstFixLogged) {
                         firstFixLogged = true
                         onEvent?.invoke("amap first fix " + describeAmapFix(readout))

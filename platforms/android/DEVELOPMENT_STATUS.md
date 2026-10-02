@@ -575,6 +575,40 @@ if ((value.flags & NavigationHasRouteView) != 0U &&
 圆屏地图更新慢的直接原因是 v0.4.1 修掉的那一个：快照因缺 route token 被整批拒绝，
 设备一直停在「规划中」那一帧。手机侧本来就是每次 tick（1 Hz）推一次快照 + 路线窗口。
 
+### 📱 真机第四轮：本地 GNSS 已通，但定位流中途整条断掉（v0.4.3 已修）
+
+这一轮真机证据（小米 14 Pro）**推翻了我之前"系统定位对第三方不开放"的结论**：
+
+```text
+gnss status callback registered=true
+callback executor alive
+lastKnown[gps]=age=49s acc=1m
+first fix from gps                 ← 本地 GNSS 真的出点了
+lastKnown[fused]=age=0s acc=2m
+getCurrentLocation[fused]=age=0s acc=2m
+getCurrentLocation[passive]=age=0s acc=2m
+```
+
+也就是说手机自己的定位服务是可用的（精度 1–2 m），之前"四个 provider 全空"是那段时间
+系统定位真的没出点。双源合并的方向是对的。
+
+但卡片出现了两个新问题：
+
+1. **定位流跑了一段就整条消失**：`定位更新：49 秒前` 而 tick 仍在跑（快照 111 次）。
+   `NavigationSession.startFixLoop` 原来只 collect 一次，流一旦结束（正常结束或异常），
+   整场导航就再也没有 fix 了，而且没有任何提示。
+2. **卡片数字自相矛盾**：`49 秒前` 与 `近 10 秒 10 次` 不可能同时成立——
+   `recentFixes` 只在**收到新定位时**才裁剪窗口，流一停，这个数字就冻结在最后的值。
+
+v0.4.3 的修复：
+
+| 修复 | 做法 |
+| --- | --- |
+| 定位流自愈 | `startFixLoop` 改成循环：流结束或抛错都按 2→4→8→…（上限 30 s）退避**自动重订阅**，并把"定位源已结束，正在重新订阅"写到卡片上 |
+| 速率读数不再冻结 | `mirrorToDisplay` 里也按当前时钟裁剪 10 秒窗口 |
+| 卡片不再冻结 | tick 循环保证每拍至少 publish 一次（原来某个 drain 卡在网关调用上，整张卡片就不再更新，和"定位死了"无法区分） |
+| 重复错误不再永久静默 | 高德同一条拒绝信息每第 30 次重新打印一次（带 ×N 计数） |
+
 阶段五（前台服务与锁屏导航）、阶段六（地图下载与可选音乐控制）、
 阶段七（完整测试与交付）、阶段八（Fork 与 Release）见
 [README.md](README.md) 与 [UPSTREAM_CONTRIBUTION.md](UPSTREAM_CONTRIBUTION.md)。

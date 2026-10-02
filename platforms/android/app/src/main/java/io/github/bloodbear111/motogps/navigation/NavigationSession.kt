@@ -78,6 +78,8 @@ class NavigationSession(
     private var fixesAccepted = 0
     private var lastFixAtMs: Long? = null
     private val fixTimesMs = mutableListOf<Long>()
+    /** Incremented by every [mirrorToDisplay], so the tick can tell if it ran. */
+    private var mirrorCount = 0L
 
     /**
      * Begins navigation towards [destination]. The core answers with the first
@@ -140,24 +142,43 @@ class NavigationSession(
     private fun startFixLoop() {
         fixJob?.cancel()
         fixJob = scope.launch {
-            try {
-                location.fixes().collect { fix ->
-                    fixesAccepted += 1
-                    val now = clock()
-                    lastFixAtMs = now
-                    fixTimesMs += now
-                    // Kept as a sliding window rather than a total: "断断续续"
-                    // is a rate problem, and a total hides it completely.
-                    fixTimesMs.removeAll { it < now - CADENCE_WINDOW_MS }
-                    drain(core.pushFix(fix))
+            // A feed that ends - for any reason, including one that returns
+            // normally - would otherwise leave the session with no fix stream at
+            // all for the rest of the ride. On the phone that looked exactly
+            // like "the position froze 49 seconds ago": the counters kept
+            // running, the fix stream was simply gone.
+            var consecutiveFailures = 0
+            while (isActive) {
+                try {
+                    location.fixes().collect { fix ->
+                        consecutiveFailures = 0
+                        fixesAccepted += 1
+                        val now = clock()
+                        lastFixAtMs = now
+                        fixTimesMs += now
+                        drain(core.pushFix(fix))
+                    }
+                    if (!isActive) break
+                    consecutiveFailures += 1
+                    _state.value = _state.value.copy(
+                        lastError = "定位源已结束，正在重新订阅（第 $consecutiveFailures 次）",
+                    )
+                } catch (cancelled: CancellationException) {
+                    // Restarting the location client cancels the previous loop on
+                    // purpose. Reporting that as "StandaloneCoroutine was
+                    // cancelled" made a deliberate restart look like a fault.
+                    throw cancelled
+                } catch (error: Throwable) {
+                    consecutiveFailures += 1
+                    _state.value = _state.value.copy(
+                        lastError = error.message ?: "location failed",
+                    )
                 }
-            } catch (cancelled: CancellationException) {
-                // Restarting the location client cancels the previous loop on
-                // purpose. Reporting that as "StandaloneCoroutine was cancelled"
-                // made a deliberate restart look like a fault.
-                throw cancelled
-            } catch (error: Throwable) {
-                _state.value = _state.value.copy(lastError = error.message ?: "location failed")
+                // Bounded backoff: long enough not to hammer a broken provider,
+                // short enough that a transient gap costs seconds, not minutes.
+                val backoffMs = (RESTART_BASE_DELAY_MS shl (consecutiveFailures - 1))
+                    .coerceAtMost(RESTART_MAX_DELAY_MS)
+                delay(backoffMs)
             }
         }
     }
@@ -168,7 +189,13 @@ class NavigationSession(
             while (isActive) {
                 delay(TICK_INTERVAL_MS)
                 if (!_state.value.active) break
+                val mirrorsBefore = mirrorCount
                 drain(core.tick(clock()))
+                // Always publish something this tick. When a drain is waiting on
+                // a gateway call the card used to stop updating altogether, and
+                // a frozen card is indistinguishable from a dead fix stream -
+                // that cost a whole debugging round.
+                if (mirrorCount == mirrorsBefore) mirrorToDisplay()
             }
         }
     }
@@ -261,6 +288,12 @@ class NavigationSession(
      * can never disagree about what is being navigated.
      */
     private fun mirrorToDisplay() {
+        mirrorCount += 1
+        val nowMs = clock()
+        // Pruned here as well as on arrival: if the stream stops, the window has
+        // to keep shrinking with the clock, otherwise the rate readout freezes at
+        // its last value and contradicts the age right next to it.
+        fixTimesMs.removeAll { it < nowMs - CADENCE_WINDOW_MS }
         val snapshot = core.snapshot()
         val input = MotoSnapshotInput().apply {
             state = snapshot.state
@@ -350,7 +383,7 @@ class NavigationSession(
             routeRequestInFlight = snapshot.routeRequestInFlight,
             fixesAccepted = fixesAccepted,
             recentFixes = fixTimesMs.size,
-            lastFixAgeMs = lastFixAtMs?.let { clock() - it },
+            lastFixAgeMs = lastFixAtMs?.let { nowMs - it },
         )
     }
 
@@ -358,5 +391,7 @@ class NavigationSession(
         const val TICK_INTERVAL_MS = 1_000L
         const val E6 = 1_000_000.0
         const val CADENCE_WINDOW_MS = 10_000L
+        const val RESTART_BASE_DELAY_MS = 2_000L
+        const val RESTART_MAX_DELAY_MS = 30_000L
     }
 }
